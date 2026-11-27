@@ -81,4 +81,8 @@ pub mod agent_payment_firewall {
             new_agent,
         )
     }
+
+    pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
+        instructions::withdraw::handle_withdraw(ctx, amount)
+    }
 }
