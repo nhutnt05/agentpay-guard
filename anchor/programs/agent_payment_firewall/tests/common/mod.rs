@@ -5,13 +5,15 @@
 
 use {
     agent_payment_firewall::{
-        state::{AgentPolicy, MerchantAllowlist},
-        SEED_MERCHANT, SEED_POLICY,
+        events::PaymentExecuted,
+        state::{AgentPolicy, MerchantAllowlist, PaymentReceipt},
+        utils::compute_request_hash,
+        SEED_MERCHANT, SEED_POLICY, SEED_RECEIPT,
     },
     anchor_lang::{
         prelude::{Clock, Pubkey},
         solana_program::{instruction::Instruction, system_instruction},
-        AccountDeserialize, InstructionData, ToAccountMetas,
+        AccountDeserialize, AnchorDeserialize, Discriminator, InstructionData, ToAccountMetas,
     },
     litesvm::{types::TransactionResult, LiteSVM},
     solana_account::Account,
@@ -397,5 +399,207 @@ pub fn policy_env() -> PolicyEnv {
         mint,
         vault: vault_address(&policy, &mint),
         policy,
+    }
+}
+
+// ---------- execute_payment helpers ----------
+
+/// Canonical payment request fields (docs/11 §3).
+#[derive(Clone, Copy, Debug)]
+pub struct PaymentRequest {
+    pub request_hash: [u8; 32],
+    pub request_id: [u8; 16],
+    pub amount: u64,
+    pub expires_at: i64,
+}
+
+pub fn random_request_id() -> [u8; 16] {
+    Pubkey::new_unique().to_bytes()[..16].try_into().unwrap()
+}
+
+/// Builds a request with a correct canonical hash, expiring 300 s after TEST_NOW.
+pub fn payment_request(
+    policy: &Pubkey,
+    agent: &Pubkey,
+    merchant: &Pubkey,
+    mint: &Pubkey,
+    amount: u64,
+) -> PaymentRequest {
+    let request_id = random_request_id();
+    let expires_at = TEST_NOW + 300;
+    PaymentRequest {
+        request_hash: compute_request_hash(
+            policy,
+            agent,
+            merchant,
+            mint,
+            amount,
+            &request_id,
+            expires_at,
+        ),
+        request_id,
+        amount,
+        expires_at,
+    }
+}
+
+pub fn receipt_pda(policy: &Pubkey, request_hash: &[u8; 32]) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[SEED_RECEIPT, policy.as_ref(), request_hash.as_ref()],
+        &program_id(),
+    )
+}
+
+/// All accounts of `execute_payment`, overridable for negative tests.
+#[derive(Clone, Copy, Debug)]
+pub struct PaymentAccounts {
+    pub agent: Pubkey,
+    pub policy: Pubkey,
+    pub merchant: Pubkey,
+    pub merchant_allowlist: Pubkey,
+    pub mint: Pubkey,
+    pub vault: Pubkey,
+    pub merchant_token_account: Pubkey,
+    pub receipt: Pubkey,
+    pub token_program: Pubkey,
+}
+
+pub fn payment_accounts(
+    agent: &Pubkey,
+    policy: &Pubkey,
+    merchant: &Pubkey,
+    mint: &Pubkey,
+    request_hash: &[u8; 32],
+) -> PaymentAccounts {
+    PaymentAccounts {
+        agent: *agent,
+        policy: *policy,
+        merchant: *merchant,
+        merchant_allowlist: merchant_pda(policy, merchant).0,
+        mint: *mint,
+        vault: vault_address(policy, mint),
+        merchant_token_account: get_associated_token_address(merchant, mint),
+        receipt: receipt_pda(policy, request_hash).0,
+        token_program: TOKEN_PROGRAM_ID,
+    }
+}
+
+pub fn execute_payment_ix(accounts: &PaymentAccounts, req: &PaymentRequest) -> Instruction {
+    Instruction::new_with_bytes(
+        program_id(),
+        &agent_payment_firewall::instruction::ExecutePayment {
+            request_hash: req.request_hash,
+            request_id: req.request_id,
+            amount: req.amount,
+            expires_at: req.expires_at,
+        }
+        .data(),
+        agent_payment_firewall::accounts::ExecutePayment {
+            agent: accounts.agent,
+            policy: accounts.policy,
+            merchant: accounts.merchant,
+            merchant_allowlist: accounts.merchant_allowlist,
+            mint: accounts.mint,
+            vault: accounts.vault,
+            merchant_token_account: accounts.merchant_token_account,
+            receipt: accounts.receipt,
+            token_program: accounts.token_program,
+            system_program: anchor_lang::solana_program::system_program::ID,
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn fetch_receipt(svm: &LiteSVM, address: &Pubkey) -> PaymentReceipt {
+    let acc = svm.get_account(address).expect("receipt account exists");
+    assert_eq!(acc.owner, program_id());
+    let mut data: &[u8] = &acc.data;
+    PaymentReceipt::try_deserialize(&mut data).unwrap()
+}
+
+/// Decodes the `PaymentExecuted` event from `Program data:` log lines, if present.
+pub fn find_payment_event(logs: &[String]) -> Option<PaymentExecuted> {
+    use base64::Engine;
+    logs.iter()
+        .filter_map(|l| l.strip_prefix("Program data: "))
+        .filter_map(|b64| base64::engine::general_purpose::STANDARD.decode(b64).ok())
+        .find(|bytes| bytes.starts_with(PaymentExecuted::DISCRIMINATOR))
+        .map(|bytes| {
+            PaymentExecuted::try_from_slice(&bytes[PaymentExecuted::DISCRIMINATOR.len()..])
+                .expect("decode PaymentExecuted")
+        })
+}
+
+pub const VAULT_FUNDING: u64 = 100 * ONE;
+
+/// Policy (default limits) + one allowlisted merchant with an ATA + funded vault.
+pub struct PaymentEnv {
+    pub svm: LiteSVM,
+    pub owner: Keypair,
+    pub agent: Keypair,
+    pub mint: Pubkey,
+    pub policy: Pubkey,
+    pub vault: Pubkey,
+    pub merchant: Pubkey,
+    pub merchant_ata: Pubkey,
+}
+
+pub fn payment_env() -> PaymentEnv {
+    let PolicyEnv {
+        mut svm,
+        owner,
+        agent,
+        mint,
+        policy,
+        vault,
+    } = policy_env();
+    let merchant = Pubkey::new_unique();
+    send(
+        &mut svm,
+        &[add_merchant_ix(&owner.pubkey(), &policy, &merchant)],
+        &owner,
+        &[],
+    )
+    .expect("add merchant");
+    let merchant_ata = create_ata(&mut svm, &owner, &merchant, &mint);
+    mint_to(&mut svm, &owner, &mint, &vault, &owner, VAULT_FUNDING);
+    PaymentEnv {
+        svm,
+        owner,
+        agent,
+        mint,
+        policy,
+        vault,
+        merchant,
+        merchant_ata,
+    }
+}
+
+impl PaymentEnv {
+    pub fn request(&self, amount: u64) -> PaymentRequest {
+        payment_request(
+            &self.policy,
+            &self.agent.pubkey(),
+            &self.merchant,
+            &self.mint,
+            amount,
+        )
+    }
+
+    pub fn accounts(&self, req: &PaymentRequest) -> PaymentAccounts {
+        payment_accounts(
+            &self.agent.pubkey(),
+            &self.policy,
+            &self.merchant,
+            &self.mint,
+            &req.request_hash,
+        )
+    }
+
+    /// Agent signs and pays fees (MVP default).
+    pub fn pay(&mut self, req: &PaymentRequest) -> TransactionResult {
+        let ix = execute_payment_ix(&self.accounts(req), req);
+        let agent = self.agent.insecure_clone();
+        send(&mut self.svm, &[ix], &agent, &[])
     }
 }

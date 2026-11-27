@@ -1,13 +1,15 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::get_associated_token_address,
-    token::{Mint, Token, TokenAccount},
+    token::{self, Mint, Token, TokenAccount, TransferChecked},
 };
 
 use crate::{
     constants::*,
     errors::AgentPayError,
+    events::PaymentExecuted,
     state::{AgentPolicy, MerchantAllowlist, PaymentReceipt},
+    utils::{apply_daily_spend, compute_request_hash},
 };
 
 /// Agent pays an allowlisted merchant from the policy vault (docs/05 §4).
@@ -90,16 +92,121 @@ pub struct ExecutePayment<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// TEMPORARY (T-M2-03): accounts struct only. Always fails, so a transaction can never
-/// leave a receipt or move tokens (the failed transaction rolls back the receipt `init`).
-/// Replaced by the full validation + transfer logic in T-M2-04 (docs/05 §4.1).
+/// Handler steps 1–14 in the fixed order of docs/05 §4.1. Account constraints above have
+/// already enforced: canonical policy PDA, agent signer, mint, vault, not paused, merchant
+/// allowlisted, merchant ATA valid, classic Token program, receipt PDA fresh.
+///
+/// Atomicity: any error below (including in the CPI) aborts the transaction, rolling back
+/// the receipt creation, the counter update and the transfer together.
 pub fn handle_execute_payment(
-    _ctx: Context<ExecutePayment>,
-    _request_hash: [u8; 32],
-    _request_id: [u8; 16],
-    _amount: u64,
-    _expires_at: i64,
+    ctx: Context<ExecutePayment>,
+    request_hash: [u8; 32],
+    request_id: [u8; 16],
+    amount: u64,
+    expires_at: i64,
 ) -> Result<()> {
-    msg!("execute_payment handler not implemented yet (T-M2-04)");
-    Err(ProgramError::InvalidInstructionData.into())
+    // 1–2. Amount bounds.
+    require!(amount > 0, AgentPayError::InvalidAmount);
+    require!(
+        amount <= ctx.accounts.policy.max_per_tx,
+        AgentPayError::ExceedsMaxPerTx
+    );
+
+    // 3–5. Request lifetime: not expired, and not further ahead than the max TTL.
+    let now = Clock::get()?.unix_timestamp;
+    require!(now <= expires_at, AgentPayError::RequestExpired);
+    let latest_allowed_expiry = now
+        .checked_add(MAX_REQUEST_TTL_SECONDS)
+        .ok_or(error!(AgentPayError::ArithmeticOverflow))?;
+    require!(
+        expires_at <= latest_allowed_expiry,
+        AgentPayError::RequestExpiryTooFar
+    );
+
+    // 6. The supplied hash (used in the receipt seeds) must be the canonical hash of the
+    //    actual payment fields; never trust it as-is.
+    let policy_key = ctx.accounts.policy.key();
+    let agent = ctx.accounts.agent.key();
+    let merchant = ctx.accounts.merchant.key();
+    let mint = ctx.accounts.mint.key();
+    let expected = compute_request_hash(
+        &policy_key,
+        &agent,
+        &merchant,
+        &mint,
+        amount,
+        &request_id,
+        expires_at,
+    );
+    require!(expected == request_hash, AgentPayError::InvalidRequestHash);
+
+    // 7–9. Lazy UTC-day reset, checked accumulation, daily limit.
+    let spend = apply_daily_spend(
+        ctx.accounts.policy.spent_today,
+        ctx.accounts.policy.day_index,
+        now,
+        amount,
+        ctx.accounts.policy.daily_limit,
+    )?;
+
+    // 10. Explicit balance check for a clear error (the Token program would also fail).
+    require!(
+        ctx.accounts.vault.amount >= amount,
+        AgentPayError::InsufficientVaultBalance
+    );
+
+    // 11. Effects: spending counter.
+    let policy = &mut ctx.accounts.policy;
+    policy.spent_today = spend.spent_today;
+    policy.day_index = spend.day_index;
+    let owner = policy.owner;
+    let policy_id = policy.policy_id;
+    let policy_bump = policy.bump;
+
+    // 12. Effects: receipt (account was created by the `init` constraint).
+    let receipt_key = ctx.accounts.receipt.key();
+    ctx.accounts.receipt.set_inner(PaymentReceipt {
+        policy: policy_key,
+        request_hash,
+        agent,
+        merchant,
+        amount,
+        mint,
+        created_at: now,
+        bump: ctx.bumps.receipt,
+    });
+
+    // 13. Interaction: vault → merchant ATA, signed by the policy PDA.
+    let signer_seeds: &[&[&[u8]]] = &[&[
+        SEED_POLICY,
+        owner.as_ref(),
+        policy_id.as_ref(),
+        &[policy_bump],
+    ]];
+    let cpi_accounts = TransferChecked {
+        from: ctx.accounts.vault.to_account_info(),
+        mint: ctx.accounts.mint.to_account_info(),
+        to: ctx.accounts.merchant_token_account.to_account_info(),
+        authority: ctx.accounts.policy.to_account_info(),
+    };
+    token::transfer_checked(
+        CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer_seeds),
+        amount,
+        ctx.accounts.mint.decimals,
+    )?;
+
+    // 14. Event (convenience only; chain state is authoritative).
+    emit!(PaymentExecuted {
+        policy: policy_key,
+        receipt: receipt_key,
+        request_hash,
+        agent,
+        merchant,
+        mint,
+        amount,
+        spent_today: spend.spent_today,
+        day_index: spend.day_index,
+        timestamp: now,
+    });
+    Ok(())
 }
