@@ -9,59 +9,11 @@ use {
     agent_payment_firewall::{errors::AgentPayError, utils::day_index},
     anchor_lang::{error::ErrorCode as AnchorErrorCode, prelude::Pubkey},
     common::*,
-    litesvm::types::TransactionResult,
     solana_signer::Signer,
 };
 
 /// Byte offset of `AgentPolicy::is_paused` (docs/03 §3).
 const IS_PAUSED_OFFSET: usize = 200;
-
-/// Everything a rejected payment must leave untouched.
-#[derive(Debug, PartialEq, Eq)]
-struct Snapshot {
-    vault: u64,
-    merchant_ata: u64,
-    spent_today: u64,
-    day_index: i64,
-}
-
-fn snapshot(env: &PaymentEnv) -> Snapshot {
-    let p = fetch_policy(&env.svm, &env.policy);
-    Snapshot {
-        vault: token_balance(&env.svm, &env.vault),
-        merchant_ata: token_balance(&env.svm, &env.merchant_ata),
-        spent_today: p.spent_today,
-        day_index: p.day_index,
-    }
-}
-
-/// Asserts the error code, an unchanged snapshot, and that no receipt exists for `req`.
-fn assert_rejected(
-    env: &PaymentEnv,
-    before: &Snapshot,
-    req: &PaymentRequest,
-    res: TransactionResult,
-    code: u32,
-) {
-    assert_error_code(res, code);
-    assert_eq!(
-        &snapshot(env),
-        before,
-        "state must be unchanged after rejection"
-    );
-    assert!(
-        !account_exists(&env.svm, &receipt_pda(&env.policy, &req.request_hash).0),
-        "no receipt may exist for a rejected payment"
-    );
-}
-
-fn custom(e: AgentPayError) -> u32 {
-    u32::from(e)
-}
-
-fn framework(e: AnchorErrorCode) -> u32 {
-    u32::from(e)
-}
 
 /// EP-01: authorized agent pays an allowlisted merchant.
 /// Asserts balances, policy counter, receipt contents/size, rent payer and event.

@@ -78,6 +78,18 @@ pub fn send(
 ) -> TransactionResult {
     svm.expire_blockhash();
     let blockhash = svm.latest_blockhash();
+    let tx = build_tx(ixs, payer, extra, blockhash);
+    svm.send_transaction(tx)
+}
+
+/// Signs a legacy transaction against an explicit blockhash (no submission).
+/// Used to prepare several transactions before any of them lands (race tests).
+pub fn build_tx(
+    ixs: &[Instruction],
+    payer: &Keypair,
+    extra: &[&Keypair],
+    blockhash: solana_hash::Hash,
+) -> VersionedTransaction {
     let msg = Message::new_with_blockhash(ixs, Some(&payer.pubkey()), &blockhash);
     let mut signers: Vec<&Keypair> = vec![payer];
     for kp in extra {
@@ -86,8 +98,7 @@ pub fn send(
             signers.push(kp);
         }
     }
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &signers).unwrap();
-    svm.send_transaction(tx)
+    VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &signers).unwrap()
 }
 
 /// Asserts the transaction failed with the given custom/framework error code.
@@ -623,6 +634,25 @@ impl PaymentEnv {
         )
     }
 
+    /// Request with a correct canonical hash and an explicit `expires_at`.
+    pub fn request_expiring(&self, amount: u64, expires_at: i64) -> PaymentRequest {
+        let request_id = random_request_id();
+        PaymentRequest {
+            request_hash: compute_request_hash(
+                &self.policy,
+                &self.agent.pubkey(),
+                &self.merchant,
+                &self.mint,
+                amount,
+                &request_id,
+                expires_at,
+            ),
+            request_id,
+            amount,
+            expires_at,
+        }
+    }
+
     pub fn accounts(&self, req: &PaymentRequest) -> PaymentAccounts {
         payment_accounts(
             &self.agent.pubkey(),
@@ -639,4 +669,53 @@ impl PaymentEnv {
         let agent = self.agent.insecure_clone();
         send(&mut self.svm, &[ix], &agent, &[])
     }
+}
+
+// ---------- rejection assertions (shared by payment/replay tests) ----------
+
+/// Everything a rejected payment must leave untouched.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Snapshot {
+    pub vault: u64,
+    pub merchant_ata: u64,
+    pub spent_today: u64,
+    pub day_index: i64,
+}
+
+pub fn snapshot(env: &PaymentEnv) -> Snapshot {
+    let p = fetch_policy(&env.svm, &env.policy);
+    Snapshot {
+        vault: token_balance(&env.svm, &env.vault),
+        merchant_ata: token_balance(&env.svm, &env.merchant_ata),
+        spent_today: p.spent_today,
+        day_index: p.day_index,
+    }
+}
+
+/// Asserts the error code, an unchanged snapshot, and that no receipt exists for `req`.
+pub fn assert_rejected(
+    env: &PaymentEnv,
+    before: &Snapshot,
+    req: &PaymentRequest,
+    res: TransactionResult,
+    code: u32,
+) {
+    assert_error_code(res, code);
+    assert_eq!(
+        &snapshot(env),
+        before,
+        "state must be unchanged after rejection"
+    );
+    assert!(
+        !account_exists(&env.svm, &receipt_pda(&env.policy, &req.request_hash).0),
+        "no receipt may exist for a rejected payment"
+    );
+}
+
+pub fn custom(e: agent_payment_firewall::errors::AgentPayError) -> u32 {
+    u32::from(e)
+}
+
+pub fn framework(e: anchor_lang::error::ErrorCode) -> u32 {
+    u32::from(e)
 }

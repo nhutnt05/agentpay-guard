@@ -73,6 +73,7 @@ dependencies = [
  "base64 0.22.1",
  "litesvm",
  "solana-account",
+ "solana-hash",
  "solana-keypair",
  "solana-message",
  "solana-program-pack",

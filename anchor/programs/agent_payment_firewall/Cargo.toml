@@ -42,6 +42,8 @@ spl-token-interface = "2"
 spl-associated-token-account-interface = "2"
 # Decodes `Program data:` event logs in tests (already in the lockfile via anchor).
 base64 = "0.22"
+# Blockhash type for pre-signing transactions in race tests (single version in the lockfile).
+solana-hash = "4"
 
 
 [lints.rust]
