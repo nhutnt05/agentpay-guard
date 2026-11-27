@@ -306,6 +306,25 @@ pub fn add_merchant_ix(signer: &Pubkey, policy: &Pubkey, merchant: &Pubkey) -> I
     )
 }
 
+/// `signer` is the account placed in the `owner` slot (may be a non-owner in negative tests).
+pub fn remove_merchant_ix(signer: &Pubkey, policy: &Pubkey, merchant: &Pubkey) -> Instruction {
+    Instruction::new_with_bytes(
+        program_id(),
+        &agent_payment_firewall::instruction::RemoveMerchant {}.data(),
+        agent_payment_firewall::accounts::RemoveMerchant {
+            owner: *signer,
+            policy: *policy,
+            merchant: *merchant,
+            merchant_allowlist: merchant_pda(policy, merchant).0,
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn lamports(svm: &LiteSVM, address: &Pubkey) -> u64 {
+    svm.get_account(address).map(|a| a.lamports).unwrap_or(0)
+}
+
 pub fn fetch_merchant(svm: &LiteSVM, address: &Pubkey) -> MerchantAllowlist {
     let acc = svm.get_account(address).expect("allowlist account exists");
     assert_eq!(acc.owner, program_id());
