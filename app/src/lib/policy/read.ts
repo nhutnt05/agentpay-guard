@@ -33,7 +33,7 @@ export type PolicyLookup =
  * not one of our policies" (wrong owner program or wrong discriminator).
  */
 export async function loadPolicy(
-  connection: Connection,
+  connection: Pick<Connection, "getAccountInfoAndContext">,
   program: AgentPaymentFirewallProgram,
   address: PublicKey,
 ): Promise<PolicyLookup> {
@@ -49,7 +49,9 @@ export async function loadPolicy(
 }
 
 /** Cluster time (unix seconds) from the latest confirmed block; null if unavailable. */
-export async function clusterUnixTime(connection: Connection): Promise<{ slot: number; unixTime: number | null }> {
+export async function clusterUnixTime(
+  connection: Pick<Connection, "getSlot" | "getBlockTime">,
+): Promise<{ slot: number; unixTime: number | null }> {
   const slot = await connection.getSlot("confirmed");
   const unixTime = await connection.getBlockTime(slot).catch(() => null);
   return { slot, unixTime };
