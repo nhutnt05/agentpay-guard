@@ -60,7 +60,7 @@ Solana devnet · Rust · Anchor · Classic SPL Token + Associated Token Account 
 
 ```
 anchor/    Anchor workspace (program: agent_payment_firewall) — M1 implemented
-app/       Next.js app: UI + /api/v1 — not yet created
+app/       Next.js app: UI + /api/v1 — scaffold created (T-M4-01), features pending
 scripts/   devnet setup / IDL sync scripts — not yet created
 docs/      specification (this package)
 ```
