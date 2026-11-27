@@ -4,7 +4,10 @@
 #![allow(dead_code, clippy::result_large_err)]
 
 use {
-    agent_payment_firewall::{state::AgentPolicy, SEED_POLICY},
+    agent_payment_firewall::{
+        state::{AgentPolicy, MerchantAllowlist},
+        SEED_MERCHANT, SEED_POLICY,
+    },
     anchor_lang::{
         prelude::{Clock, Pubkey},
         solana_program::{instruction::Instruction, system_instruction},
@@ -280,6 +283,36 @@ pub fn fetch_policy(svm: &LiteSVM, address: &Pubkey) -> AgentPolicy {
     AgentPolicy::try_deserialize(&mut data).unwrap()
 }
 
+pub fn merchant_pda(policy: &Pubkey, merchant: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[SEED_MERCHANT, policy.as_ref(), merchant.as_ref()],
+        &program_id(),
+    )
+}
+
+/// `signer` is the account placed in the `owner` slot (may be a non-owner in negative tests).
+pub fn add_merchant_ix(signer: &Pubkey, policy: &Pubkey, merchant: &Pubkey) -> Instruction {
+    Instruction::new_with_bytes(
+        program_id(),
+        &agent_payment_firewall::instruction::AddMerchant {}.data(),
+        agent_payment_firewall::accounts::AddMerchant {
+            owner: *signer,
+            policy: *policy,
+            merchant: *merchant,
+            merchant_allowlist: merchant_pda(policy, merchant).0,
+            system_program: anchor_lang::solana_program::system_program::ID,
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn fetch_merchant(svm: &LiteSVM, address: &Pubkey) -> MerchantAllowlist {
+    let acc = svm.get_account(address).expect("allowlist account exists");
+    assert_eq!(acc.owner, program_id());
+    let mut data: &[u8] = &acc.data;
+    MerchantAllowlist::try_deserialize(&mut data).unwrap()
+}
+
 pub fn account_exists(svm: &LiteSVM, address: &Pubkey) -> bool {
     svm.get_account(address)
         .map(|a| a.lamports > 0)
@@ -304,5 +337,46 @@ pub fn fixture() -> Fixture {
         owner,
         agent,
         mint,
+    }
+}
+
+pub const DEFAULT_MAX_PER_TX: u64 = 10 * ONE;
+pub const DEFAULT_DAILY_LIMIT: u64 = 20 * ONE;
+
+/// Fixture with an initialized policy (default limits) and its vault.
+pub struct PolicyEnv {
+    pub svm: LiteSVM,
+    pub owner: Keypair,
+    pub agent: Keypair,
+    pub mint: Pubkey,
+    pub policy: Pubkey,
+    pub vault: Pubkey,
+}
+
+pub fn policy_env() -> PolicyEnv {
+    let Fixture {
+        mut svm,
+        owner,
+        agent,
+        mint,
+    } = fixture();
+    let policy_id = random_policy_id();
+    let (policy, _) = policy_pda(&owner.pubkey(), &policy_id);
+    let ix = initialize_policy_ix(
+        &owner.pubkey(),
+        &mint,
+        policy_id,
+        agent.pubkey(),
+        DEFAULT_MAX_PER_TX,
+        DEFAULT_DAILY_LIMIT,
+    );
+    send(&mut svm, &[ix], &owner, &[]).expect("initialize policy");
+    PolicyEnv {
+        svm,
+        owner,
+        agent,
+        mint,
+        vault: vault_address(&policy, &mint),
+        policy,
     }
 }

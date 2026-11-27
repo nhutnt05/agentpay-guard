@@ -86,6 +86,24 @@ pub fn validate_agent(agent: &Pubkey, owner: &Pubkey) -> Result<()> {
     Ok(())
 }
 
+/// A merchant must be a real wallet and must not be the policy PDA, its vault, or its
+/// current agent (an agent that can pay itself defeats the allowlist).
+pub fn validate_merchant(
+    merchant: &Pubkey,
+    policy: &Pubkey,
+    vault: &Pubkey,
+    agent: &Pubkey,
+) -> Result<()> {
+    require!(
+        *merchant != Pubkey::default()
+            && merchant != policy
+            && merchant != vault
+            && merchant != agent,
+        AgentPayError::InvalidMerchant
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,6 +256,19 @@ mod tests {
         for bad in [Pubkey::default(), owner] {
             let err = validate_agent(&bad, &owner).unwrap_err();
             assert_eq!(code(err), u32::from(AgentPayError::InvalidAgent));
+        }
+    }
+
+    #[test]
+    fn merchant_validation() {
+        let policy = Pubkey::new_from_array([1; 32]);
+        let vault = Pubkey::new_from_array([2; 32]);
+        let agent = Pubkey::new_from_array([3; 32]);
+        let merchant = Pubkey::new_from_array([4; 32]);
+        assert!(validate_merchant(&merchant, &policy, &vault, &agent).is_ok());
+        for bad in [Pubkey::default(), policy, vault, agent] {
+            let err = validate_merchant(&bad, &policy, &vault, &agent).unwrap_err();
+            assert_eq!(code(err), u32::from(AgentPayError::InvalidMerchant));
         }
     }
 }

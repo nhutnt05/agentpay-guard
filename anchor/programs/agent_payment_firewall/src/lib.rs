@@ -34,4 +34,8 @@ pub mod agent_payment_firewall {
             daily_limit,
         )
     }
+
+    pub fn add_merchant(ctx: Context<AddMerchant>) -> Result<()> {
+        instructions::add_merchant::handle_add_merchant(ctx)
+    }
 }
