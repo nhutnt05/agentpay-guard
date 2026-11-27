@@ -168,6 +168,36 @@ pub fn create_token_2022_mint_fixture(svm: &mut LiteSVM, authority: &Pubkey) -> 
     mint
 }
 
+/// A classic token account at a random (non-ATA) address with the given owner.
+pub fn create_plain_token_account(
+    svm: &mut LiteSVM,
+    payer: &Keypair,
+    owner: &Pubkey,
+    mint: &Pubkey,
+) -> Pubkey {
+    let account = Keypair::new();
+    let rent = svm.minimum_balance_for_rent_exemption(SplTokenAccount::LEN);
+    let ixs = [
+        system_instruction::create_account(
+            &payer.pubkey(),
+            &account.pubkey(),
+            rent,
+            SplTokenAccount::LEN as u64,
+            &TOKEN_PROGRAM_ID,
+        ),
+        token_ix::initialize_account3(&TOKEN_PROGRAM_ID, &account.pubkey(), mint, owner).unwrap(),
+    ];
+    send(svm, &ixs, payer, &[&account]).expect("create plain token account");
+    account.pubkey()
+}
+
+/// Overwrites one byte of a program account's data (test-only state injection).
+pub fn poke_account_byte(svm: &mut LiteSVM, address: &Pubkey, offset: usize, value: u8) {
+    let mut acc = svm.get_account(address).expect("account exists");
+    acc.data[offset] = value;
+    svm.set_account(*address, acc).unwrap();
+}
+
 pub fn create_ata(svm: &mut LiteSVM, payer: &Keypair, wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
     let ix = create_associated_token_account(&payer.pubkey(), wallet, mint, &TOKEN_PROGRAM_ID);
     send(svm, &[ix], payer, &[]).expect("create ATA");
@@ -545,6 +575,11 @@ pub struct PaymentEnv {
 }
 
 pub fn payment_env() -> PaymentEnv {
+    payment_env_funded(VAULT_FUNDING)
+}
+
+/// Same as `payment_env` but with a custom vault balance (0 = unfunded).
+pub fn payment_env_funded(funding: u64) -> PaymentEnv {
     let PolicyEnv {
         mut svm,
         owner,
@@ -562,7 +597,9 @@ pub fn payment_env() -> PaymentEnv {
     )
     .expect("add merchant");
     let merchant_ata = create_ata(&mut svm, &owner, &merchant, &mint);
-    mint_to(&mut svm, &owner, &mint, &vault, &owner, VAULT_FUNDING);
+    if funding > 0 {
+        mint_to(&mut svm, &owner, &mint, &vault, &owner, funding);
+    }
     PaymentEnv {
         svm,
         owner,
