@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@anchor-lang/core": "1.2.2",
+    "@anthropic-ai/sdk": "1.14.0",
+    "@mendable/firecrawl-js": "4.54.0",
     "@solana/spl-token": "0.4.15",
     "@solana/web3.js": "1.99.0",
     "next": "16.4.6",
