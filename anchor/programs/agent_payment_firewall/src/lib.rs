@@ -42,4 +42,21 @@ pub mod agent_payment_firewall {
     pub fn remove_merchant(ctx: Context<RemoveMerchant>) -> Result<()> {
         instructions::remove_merchant::handle_remove_merchant(ctx)
     }
+
+    /// Arguments order matters: `request_hash` is first because it is used in the receipt seeds.
+    pub fn execute_payment(
+        ctx: Context<ExecutePayment>,
+        request_hash: [u8; 32],
+        request_id: [u8; 16],
+        amount: u64,
+        expires_at: i64,
+    ) -> Result<()> {
+        instructions::execute_payment::handle_execute_payment(
+            ctx,
+            request_hash,
+            request_id,
+            amount,
+            expires_at,
+        )
+    }
 }
