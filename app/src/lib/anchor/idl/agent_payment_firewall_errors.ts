@@ -1,0 +1,27 @@
+
+export const AgentPaymentFirewallErrorCode = {
+  PolicyPaused: 6000,
+  UnauthorizedAgent: 6001,
+  UnauthorizedOwner: 6002,
+  MerchantNotAllowed: 6003,
+  InvalidMint: 6004,
+  InvalidVault: 6005,
+  InvalidMerchantTokenAccount: 6006,
+  InvalidAmount: 6007,
+  ExceedsMaxPerTx: 6008,
+  ExceedsDailyLimit: 6009,
+  InsufficientVaultBalance: 6010,
+  InvalidRequestHash: 6011,
+  RequestExpired: 6012,
+  RequestExpiryTooFar: 6013,
+  ArithmeticOverflow: 6014,
+  InvalidPolicyLimits: 6015,
+  InvalidAgent: 6016,
+  PolicyAlreadyPaused: 6017,
+  PolicyNotPaused: 6018,
+  InvalidWithdrawDestination: 6019,
+  EmptyUpdate: 6020,
+  InvalidMerchant: 6021
+};
+
+export type AgentPaymentFirewallErrorName = keyof typeof AgentPaymentFirewallErrorCode;
