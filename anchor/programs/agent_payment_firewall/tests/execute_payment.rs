@@ -12,9 +12,6 @@ use {
     solana_signer::Signer,
 };
 
-/// Byte offset of `AgentPolicy::is_paused` (docs/03 §3).
-const IS_PAUSED_OFFSET: usize = 200;
-
 /// EP-01: authorized agent pays an allowlisted merchant.
 /// Asserts balances, policy counter, receipt contents/size, rent payer and event.
 #[test]
@@ -341,17 +338,14 @@ fn ep07_exact_remaining_daily_budget_succeeds() {
     );
 }
 
-/// EP-08: paused policy. `pause_policy` arrives in M3, so the flag is set by state
-/// injection here; PS-* tests cover the real instruction.
+/// EP-08: paused policy (paused by the owner via `pause_policy`).
 #[test]
 fn ep08_paused_policy_rejected() {
     let mut env = payment_env();
-    let policy = env.policy;
-    poke_account_byte(&mut env.svm, &policy, IS_PAUSED_OFFSET, 1);
-    assert!(
-        fetch_policy(&env.svm, &policy).is_paused,
-        "offset must hit is_paused"
-    );
+    let owner = env.owner.insecure_clone();
+    let ix = pause_policy_ix(&owner.pubkey(), &env.policy);
+    send(&mut env.svm, &[ix], &owner, &[]).expect("owner pauses");
+    assert!(fetch_policy(&env.svm, &env.policy).is_paused);
     let before = snapshot(&env);
     let req = env.request(ONE);
     let res = env.pay(&req);
