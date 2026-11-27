@@ -25,7 +25,17 @@ fn ep14_duplicate_request_rejected() {
     let before = snapshot(&env);
 
     set_time(&mut env.svm, TEST_NOW + 30); // still before expiry
-    assert_failed_with_log(env.pay(&req), "already in use");
+    let res = env.pay(&req);
+    // `SHOW_EP14_LOGS=1 cargo test ... -- --nocapture` prints the exact duplicate-request
+    // logs the backend parses (docs/11 §7, app/src/lib/anchor/errors.test.ts fixture).
+    if let (Err(e), true) = (&res, std::env::var("SHOW_EP14_LOGS").is_ok()) {
+        eprintln!(
+            "EP-14 err: {:?}
+EP-14 logs: {:#?}",
+            e.err, e.meta.logs
+        );
+    }
+    assert_failed_with_log(res, "already in use");
 
     assert_eq!(
         snapshot(&env),
