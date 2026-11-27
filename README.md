@@ -2,7 +2,7 @@
 
 > *Let AI transact. Never let AI bypass your payment rules.*
 
-**Project status (2026-11-27): M1 (on-chain foundation) implemented — `initialize_policy` with a PDA-controlled vault, 19 passing tests (12 unit, 7 LiteSVM integration). Not deployed.** Later milestones are planned only. Program ID, addresses and signatures will be added only after they really exist.
+**Project status (2026-11-27): on-chain program complete (M1–M3) — all 8 instructions implemented, 79 tests passing (unit + LiteSVM integration), deployed to devnet as `GvjcbQ2g7dg6ZNNBffhyVLmSz8ncbaEvL2c4M1Esayza`.** The Next.js app, AI agent and demo (M4) are planned only. Addresses and signatures appear here only after they really exist.
 
 **Tóm tắt (VI):** AgentPay Guard là lớp bảo mật thanh toán on-chain cho AI Agent trên Solana. AI có thể quyết định trả tiền cho ai, nhưng chính policy on-chain (Anchor Program) quyết định giao dịch có được phép hay không. Xem [docs/00_PROJECT_OVERVIEW.md](docs/00_PROJECT_OVERVIEW.md).
 
@@ -88,10 +88,10 @@ cd app && pnpm test && pnpm typecheck && pnpm lint  # backend/frontend tests
 ## Devnet deployment
 
 ```bash
-cd anchor && anchor deploy --provider.cluster devnet
+cd anchor && anchor program deploy --provider.cluster devnet   # `anchor deploy` still works but is deprecated in 1.2.2
 node scripts/sync-idl.mjs
 ```
-Program ID: `<PROGRAM_ID — not deployed yet>`.
+Program ID (devnet, deployed 2026-11-27): [`GvjcbQ2g7dg6ZNNBffhyVLmSz8ncbaEvL2c4M1Esayza`](https://explorer.solana.com/address/GvjcbQ2g7dg6ZNNBffhyVLmSz8ncbaEvL2c4M1Esayza?cluster=devnet). Evidence: `docs/evidence/DEVNET_EVIDENCE.md`.
 
 ## Demo
 
