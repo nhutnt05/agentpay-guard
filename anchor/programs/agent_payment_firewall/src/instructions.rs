@@ -5,6 +5,7 @@ pub mod pause_policy;
 pub mod remove_merchant;
 pub mod resume_policy;
 pub mod update_policy;
+pub mod withdraw;
 
 pub use add_merchant::*;
 pub use execute_payment::*;
@@ -13,3 +14,4 @@ pub use pause_policy::*;
 pub use remove_merchant::*;
 pub use resume_policy::*;
 pub use update_policy::*;
+pub use withdraw::*;

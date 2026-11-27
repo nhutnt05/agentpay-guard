@@ -608,6 +608,32 @@ pub fn update_policy_ix(
     )
 }
 
+/// Accounts of `withdraw`, overridable for negative tests.
+#[derive(Clone, Copy, Debug)]
+pub struct WithdrawAccounts {
+    pub owner: Pubkey,
+    pub policy: Pubkey,
+    pub mint: Pubkey,
+    pub vault: Pubkey,
+    pub destination: Pubkey,
+}
+
+pub fn withdraw_ix(accounts: &WithdrawAccounts, amount: u64) -> Instruction {
+    Instruction::new_with_bytes(
+        program_id(),
+        &agent_payment_firewall::instruction::Withdraw { amount }.data(),
+        agent_payment_firewall::accounts::Withdraw {
+            owner: accounts.owner,
+            policy: accounts.policy,
+            mint: accounts.mint,
+            vault: accounts.vault,
+            destination: accounts.destination,
+            token_program: TOKEN_PROGRAM_ID,
+        }
+        .to_account_metas(None),
+    )
+}
+
 /// `signer` is the account placed in the `owner` slot (may be a non-owner in negative tests).
 pub fn resume_policy_ix(signer: &Pubkey, policy: &Pubkey) -> Instruction {
     Instruction::new_with_bytes(
