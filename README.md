@@ -2,7 +2,7 @@
 
 > *Let AI transact. Never let AI bypass your payment rules.*
 
-**Project status (2026-11-27): specification only. No code, no deployment, no test results yet.** Everything below describes the planned MVP. Program ID, addresses and signatures will be added only after they really exist.
+**Project status (2026-11-27): M1 (on-chain foundation) implemented — `initialize_policy` with a PDA-controlled vault, 19 passing tests (12 unit, 7 LiteSVM integration). Not deployed.** Later milestones are planned only. Program ID, addresses and signatures will be added only after they really exist.
 
 **Tóm tắt (VI):** AgentPay Guard là lớp bảo mật thanh toán on-chain cho AI Agent trên Solana. AI có thể quyết định trả tiền cho ai, nhưng chính policy on-chain (Anchor Program) quyết định giao dịch có được phép hay không. Xem [docs/00_PROJECT_OVERVIEW.md](docs/00_PROJECT_OVERVIEW.md).
 
@@ -29,7 +29,7 @@ AI decides what to pay. **On-chain policy decides whether it is allowed.**
 
 | Feature | Status |
 |---|---|
-| Policy PDA + PDA-controlled vault (classic SPL Token) | PLANNED (M1) |
+| Policy PDA + PDA-controlled vault (classic SPL Token) | IMPLEMENTED (M1, local tests) |
 | Merchant allowlist, per-tx and daily limits, payment events | PLANNED (M2) |
 | Payment receipts, canonical request hash, replay protection, expiry | PLANNED (M3) |
 | Pause / resume, agent replacement, owner-only withdraw | PLANNED (M3) |
@@ -59,7 +59,7 @@ Solana devnet · Rust · Anchor · Classic SPL Token + Associated Token Account 
 ## Repository layout
 
 ```
-anchor/    Anchor workspace (program: agent_payment_firewall) — not yet created
+anchor/    Anchor workspace (program: agent_payment_firewall) — M1 implemented
 app/       Next.js app: UI + /api/v1 — not yet created
 scripts/   devnet setup / IDL sync scripts — not yet created
 docs/      specification (this package)
@@ -81,7 +81,7 @@ pnpm install && pnpm dev
 
 ```bash
 cd anchor && cargo test -p agent_payment_firewall   # Rust unit tests
-cd anchor && anchor test                            # integration tests on local validator
+cd anchor && anchor test                            # build + unit + LiteSVM integration tests
 cd app && pnpm test && pnpm typecheck && pnpm lint  # backend/frontend tests
 ```
 

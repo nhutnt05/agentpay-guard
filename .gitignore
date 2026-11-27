@@ -1,0 +1,35 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.keypair.json
+id.json
+**/keys/
+**/.keys/
+
+# Anchor / Rust
+anchor/target/
+anchor/.anchor/
+anchor/test-ledger/
+target/
+**/*.rs.bk
+
+# Node / Next.js
+node_modules/
+app/.next/
+app/out/
+.vercel/
+*.tsbuildinfo
+coverage/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+docs/
+AI_CODING_GUIDE.md
+IMPLEMENTATION_PLAN.md
+TASKS.md

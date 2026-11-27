@@ -1,0 +1,46 @@
+[package]
+name = "agent_payment_firewall"
+version = "0.1.0"
+description = "Created with Anchor"
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "agent_payment_firewall"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+
+[dependencies]
+# init-if-needed is used ONLY for the vault ATA in initialize_policy (ADR-016).
+anchor-lang = { version = "1.2.2", features = ["init-if-needed"] }
+# "token_2022" is enabled ONLY because anchor-spl 1.2.2's idl-build code references `token_interface`
+# (compile error without it). The program uses classic `anchor_spl::token` types exclusively (ADR-009/010).
+anchor-spl = { version = "1.2.2", default-features = false, features = ["token", "token_2022", "associated_token", "solana-v3"] }
+# SHA-256 for the canonical request hash (syscall-backed on-chain). anchor-lang 1.x no longer re-exports a hash module.
+solana-sha256-hasher = "3"
+
+[dev-dependencies]
+# Cargo.lock pins LiteSVM's Rust-1.89-compatible dependency graph.
+litesvm = "0.15.0"
+solana-message = "4"
+solana-transaction = "4"
+solana-signer = "3"
+solana-keypair = "3"
+solana-account = "4"
+solana-program-pack = "3"
+spl-token-interface = "2"
+spl-associated-token-account-interface = "2"
+
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
