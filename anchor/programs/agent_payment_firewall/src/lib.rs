@@ -59,4 +59,12 @@ pub mod agent_payment_firewall {
             expires_at,
         )
     }
+
+    pub fn pause_policy(ctx: Context<PausePolicy>) -> Result<()> {
+        instructions::pause_policy::handle_pause_policy(ctx)
+    }
+
+    pub fn resume_policy(ctx: Context<ResumePolicy>) -> Result<()> {
+        instructions::resume_policy::handle_resume_policy(ctx)
+    }
 }

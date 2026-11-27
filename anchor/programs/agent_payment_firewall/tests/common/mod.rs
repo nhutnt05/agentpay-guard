@@ -78,6 +78,18 @@ pub fn send(
 ) -> TransactionResult {
     svm.expire_blockhash();
     let blockhash = svm.latest_blockhash();
+    let tx = build_tx(ixs, payer, extra, blockhash);
+    svm.send_transaction(tx)
+}
+
+/// Signs a legacy transaction against an explicit blockhash (no submission).
+/// Used to prepare several transactions before any of them lands (race tests).
+pub fn build_tx(
+    ixs: &[Instruction],
+    payer: &Keypair,
+    extra: &[&Keypair],
+    blockhash: solana_hash::Hash,
+) -> VersionedTransaction {
     let msg = Message::new_with_blockhash(ixs, Some(&payer.pubkey()), &blockhash);
     let mut signers: Vec<&Keypair> = vec![payer];
     for kp in extra {
@@ -86,8 +98,7 @@ pub fn send(
             signers.push(kp);
         }
     }
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &signers).unwrap();
-    svm.send_transaction(tx)
+    VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &signers).unwrap()
 }
 
 /// Asserts the transaction failed with the given custom/framework error code.
@@ -189,13 +200,6 @@ pub fn create_plain_token_account(
     ];
     send(svm, &ixs, payer, &[&account]).expect("create plain token account");
     account.pubkey()
-}
-
-/// Overwrites one byte of a program account's data (test-only state injection).
-pub fn poke_account_byte(svm: &mut LiteSVM, address: &Pubkey, offset: usize, value: u8) {
-    let mut acc = svm.get_account(address).expect("account exists");
-    acc.data[offset] = value;
-    svm.set_account(*address, acc).unwrap();
 }
 
 pub fn create_ata(svm: &mut LiteSVM, payer: &Keypair, wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
@@ -405,6 +409,11 @@ pub struct PolicyEnv {
 }
 
 pub fn policy_env() -> PolicyEnv {
+    policy_env_with_limits(DEFAULT_MAX_PER_TX, DEFAULT_DAILY_LIMIT)
+}
+
+/// Initialized policy with custom limits.
+pub fn policy_env_with_limits(max_per_tx: u64, daily_limit: u64) -> PolicyEnv {
     let Fixture {
         mut svm,
         owner,
@@ -418,8 +427,8 @@ pub fn policy_env() -> PolicyEnv {
         &mint,
         policy_id,
         agent.pubkey(),
-        DEFAULT_MAX_PER_TX,
-        DEFAULT_DAILY_LIMIT,
+        max_per_tx,
+        daily_limit,
     );
     send(&mut svm, &[ix], &owner, &[]).expect("initialize policy");
     PolicyEnv {
@@ -549,15 +558,43 @@ pub fn fetch_receipt(svm: &LiteSVM, address: &Pubkey) -> PaymentReceipt {
 
 /// Decodes the `PaymentExecuted` event from `Program data:` log lines, if present.
 pub fn find_payment_event(logs: &[String]) -> Option<PaymentExecuted> {
+    find_event::<PaymentExecuted>(logs)
+}
+
+/// Decodes the first Anchor event of type `T` from `Program data:` log lines, if present.
+pub fn find_event<T: AnchorDeserialize + Discriminator>(logs: &[String]) -> Option<T> {
     use base64::Engine;
     logs.iter()
         .filter_map(|l| l.strip_prefix("Program data: "))
         .filter_map(|b64| base64::engine::general_purpose::STANDARD.decode(b64).ok())
-        .find(|bytes| bytes.starts_with(PaymentExecuted::DISCRIMINATOR))
-        .map(|bytes| {
-            PaymentExecuted::try_from_slice(&bytes[PaymentExecuted::DISCRIMINATOR.len()..])
-                .expect("decode PaymentExecuted")
-        })
+        .find(|bytes| bytes.starts_with(T::DISCRIMINATOR))
+        .map(|bytes| T::try_from_slice(&bytes[T::DISCRIMINATOR.len()..]).expect("decode event"))
+}
+
+/// `signer` is the account placed in the `owner` slot (may be a non-owner in negative tests).
+pub fn pause_policy_ix(signer: &Pubkey, policy: &Pubkey) -> Instruction {
+    Instruction::new_with_bytes(
+        program_id(),
+        &agent_payment_firewall::instruction::PausePolicy {}.data(),
+        agent_payment_firewall::accounts::PausePolicy {
+            owner: *signer,
+            policy: *policy,
+        }
+        .to_account_metas(None),
+    )
+}
+
+/// `signer` is the account placed in the `owner` slot (may be a non-owner in negative tests).
+pub fn resume_policy_ix(signer: &Pubkey, policy: &Pubkey) -> Instruction {
+    Instruction::new_with_bytes(
+        program_id(),
+        &agent_payment_firewall::instruction::ResumePolicy {}.data(),
+        agent_payment_firewall::accounts::ResumePolicy {
+            owner: *signer,
+            policy: *policy,
+        }
+        .to_account_metas(None),
+    )
 }
 
 pub const VAULT_FUNDING: u64 = 100 * ONE;
@@ -580,6 +617,11 @@ pub fn payment_env() -> PaymentEnv {
 
 /// Same as `payment_env` but with a custom vault balance (0 = unfunded).
 pub fn payment_env_funded(funding: u64) -> PaymentEnv {
+    payment_env_with(DEFAULT_MAX_PER_TX, DEFAULT_DAILY_LIMIT, funding)
+}
+
+/// Payment env with custom limits and vault funding (0 = unfunded).
+pub fn payment_env_with(max_per_tx: u64, daily_limit: u64, funding: u64) -> PaymentEnv {
     let PolicyEnv {
         mut svm,
         owner,
@@ -587,7 +629,7 @@ pub fn payment_env_funded(funding: u64) -> PaymentEnv {
         mint,
         policy,
         vault,
-    } = policy_env();
+    } = policy_env_with_limits(max_per_tx, daily_limit);
     let merchant = Pubkey::new_unique();
     send(
         &mut svm,
@@ -623,6 +665,25 @@ impl PaymentEnv {
         )
     }
 
+    /// Request with a correct canonical hash and an explicit `expires_at`.
+    pub fn request_expiring(&self, amount: u64, expires_at: i64) -> PaymentRequest {
+        let request_id = random_request_id();
+        PaymentRequest {
+            request_hash: compute_request_hash(
+                &self.policy,
+                &self.agent.pubkey(),
+                &self.merchant,
+                &self.mint,
+                amount,
+                &request_id,
+                expires_at,
+            ),
+            request_id,
+            amount,
+            expires_at,
+        }
+    }
+
     pub fn accounts(&self, req: &PaymentRequest) -> PaymentAccounts {
         payment_accounts(
             &self.agent.pubkey(),
@@ -639,4 +700,53 @@ impl PaymentEnv {
         let agent = self.agent.insecure_clone();
         send(&mut self.svm, &[ix], &agent, &[])
     }
+}
+
+// ---------- rejection assertions (shared by payment/replay tests) ----------
+
+/// Everything a rejected payment must leave untouched.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Snapshot {
+    pub vault: u64,
+    pub merchant_ata: u64,
+    pub spent_today: u64,
+    pub day_index: i64,
+}
+
+pub fn snapshot(env: &PaymentEnv) -> Snapshot {
+    let p = fetch_policy(&env.svm, &env.policy);
+    Snapshot {
+        vault: token_balance(&env.svm, &env.vault),
+        merchant_ata: token_balance(&env.svm, &env.merchant_ata),
+        spent_today: p.spent_today,
+        day_index: p.day_index,
+    }
+}
+
+/// Asserts the error code, an unchanged snapshot, and that no receipt exists for `req`.
+pub fn assert_rejected(
+    env: &PaymentEnv,
+    before: &Snapshot,
+    req: &PaymentRequest,
+    res: TransactionResult,
+    code: u32,
+) {
+    assert_error_code(res, code);
+    assert_eq!(
+        &snapshot(env),
+        before,
+        "state must be unchanged after rejection"
+    );
+    assert!(
+        !account_exists(&env.svm, &receipt_pda(&env.policy, &req.request_hash).0),
+        "no receipt may exist for a rejected payment"
+    );
+}
+
+pub fn custom(e: agent_payment_firewall::errors::AgentPayError) -> u32 {
+    u32::from(e)
+}
+
+pub fn framework(e: anchor_lang::error::ErrorCode) -> u32 {
+    u32::from(e)
 }
