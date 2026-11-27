@@ -67,4 +67,18 @@ pub mod agent_payment_firewall {
     pub fn resume_policy(ctx: Context<ResumePolicy>) -> Result<()> {
         instructions::resume_policy::handle_resume_policy(ctx)
     }
+
+    pub fn update_policy(
+        ctx: Context<UpdatePolicy>,
+        new_max_per_tx: Option<u64>,
+        new_daily_limit: Option<u64>,
+        new_agent: Option<Pubkey>,
+    ) -> Result<()> {
+        instructions::update_policy::handle_update_policy(
+            ctx,
+            new_max_per_tx,
+            new_daily_limit,
+            new_agent,
+        )
+    }
 }

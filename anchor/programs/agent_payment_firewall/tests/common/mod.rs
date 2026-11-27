@@ -585,6 +585,30 @@ pub fn pause_policy_ix(signer: &Pubkey, policy: &Pubkey) -> Instruction {
 }
 
 /// `signer` is the account placed in the `owner` slot (may be a non-owner in negative tests).
+pub fn update_policy_ix(
+    signer: &Pubkey,
+    policy: &Pubkey,
+    new_max_per_tx: Option<u64>,
+    new_daily_limit: Option<u64>,
+    new_agent: Option<Pubkey>,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        program_id(),
+        &agent_payment_firewall::instruction::UpdatePolicy {
+            new_max_per_tx,
+            new_daily_limit,
+            new_agent,
+        }
+        .data(),
+        agent_payment_firewall::accounts::UpdatePolicy {
+            owner: *signer,
+            policy: *policy,
+        }
+        .to_account_metas(None),
+    )
+}
+
+/// `signer` is the account placed in the `owner` slot (may be a non-owner in negative tests).
 pub fn resume_policy_ix(signer: &Pubkey, policy: &Pubkey) -> Instruction {
     Instruction::new_with_bytes(
         program_id(),
