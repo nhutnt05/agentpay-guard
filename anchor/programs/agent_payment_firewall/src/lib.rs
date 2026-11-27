@@ -38,4 +38,8 @@ pub mod agent_payment_firewall {
     pub fn add_merchant(ctx: Context<AddMerchant>) -> Result<()> {
         instructions::add_merchant::handle_add_merchant(ctx)
     }
+
+    pub fn remove_merchant(ctx: Context<RemoveMerchant>) -> Result<()> {
+        instructions::remove_merchant::handle_remove_merchant(ctx)
+    }
 }
