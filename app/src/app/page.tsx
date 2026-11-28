@@ -30,9 +30,14 @@ export default function Home() {
         </div>
 
         <div className="flex flex-wrap items-center justify-center gap-4">
-          <Link href="/security">
+          <Link href="/policies">
             <Button variant="primary" size="lg">
-              View Security Demo
+              My Policies
+            </Button>
+          </Link>
+          <Link href="/security">
+            <Button variant="secondary" size="lg">
+              Security Demo
             </Button>
           </Link>
           <Link href="/agent">

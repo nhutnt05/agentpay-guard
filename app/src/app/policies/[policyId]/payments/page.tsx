@@ -4,8 +4,7 @@
  */
 
 import { Metadata } from 'next';
-import { PaymentsHistory } from '@/components/policy/PaymentsHistory';
-import { Navigation } from '@/components/ui/Navigation';
+import { PaymentsPageClient } from '@/components/policy/PaymentsPageClient';
 
 export const metadata: Metadata = {
   title: 'Payment History | AgentPay Guard',
@@ -19,12 +18,5 @@ interface PaymentsPageProps {
 export default async function PaymentsPage({ params }: PaymentsPageProps) {
   const { policyId } = await params;
 
-  return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-b from-gray-950 to-gray-900">
-      <Navigation />
-      <main className="flex-1">
-        <PaymentsHistory policyAddress={policyId} />
-      </main>
-    </div>
-  );
+  return <PaymentsPageClient policyId={policyId} />;
 }

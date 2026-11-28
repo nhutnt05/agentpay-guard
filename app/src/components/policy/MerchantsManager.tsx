@@ -13,7 +13,6 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { getBrowserProgram } from '@/lib/wallet/program';
 import { useSendTransaction } from '@/lib/wallet/useSendTransaction';
 import { buildAddMerchant, buildRemoveMerchant } from '@/lib/wallet/transactions';
 
@@ -33,11 +32,9 @@ export function MerchantsManager({ policyAddress }: MerchantsManagerProps) {
     if (!publicKey || !merchantAddress) return;
 
     try {
-      const program = getBrowserProgram(connection);
       const merchantPubkey = new PublicKey(merchantAddress);
 
-      const instruction = await buildAddMerchant(
-        program,
+      const instruction = buildAddMerchant(
         new PublicKey(policyAddress),
         publicKey,
         merchantPubkey
@@ -57,11 +54,9 @@ export function MerchantsManager({ policyAddress }: MerchantsManagerProps) {
     if (!publicKey || !merchantAddress) return;
 
     try {
-      const program = getBrowserProgram(connection);
       const merchantPubkey = new PublicKey(merchantAddress);
 
-      const instruction = await buildRemoveMerchant(
-        program,
+      const instruction = buildRemoveMerchant(
         new PublicKey(policyAddress),
         publicKey,
         merchantPubkey

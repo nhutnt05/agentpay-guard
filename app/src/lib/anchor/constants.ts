@@ -7,13 +7,17 @@ import idl from "./idl/agent_payment_firewall.json";
 /** Program id, taken from the synced IDL (the IDL address is validated by scripts/sync-idl.mjs). */
 export const PROGRAM_ID = new PublicKey(idl.address);
 
-/** SPL Token mint for demo (from NEXT_PUBLIC_DEMO_MINT env variable) */
+/** SPL Token mint for demo (from NEXT_PUBLIC_DEMO_MINT env variable, defaults to wrapped SOL) */
+const demoMint = process.env.NEXT_PUBLIC_DEMO_MINT?.trim();
+const isValidMint = demoMint && demoMint.length > 0 && !demoMint.startsWith('<');
 export const MINT = new PublicKey(
-  process.env.NEXT_PUBLIC_DEMO_MINT || "So11111111111111111111111111111111111111112"
+  isValidMint
+    ? demoMint
+    : "So11111111111111111111111111111111111111112" // Wrapped SOL
 );
 
-/** Mint decimals (default 6 for test USDC, 9 for wrapped SOL) */
-export const MINT_DECIMALS = 6;
+/** Mint decimals (default 9 for wrapped SOL, should match actual mint) */
+export const MINT_DECIMALS = isValidMint ? 6 : 9;
 
 const ascii = (s: string) => new TextEncoder().encode(s);
 

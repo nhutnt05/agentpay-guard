@@ -15,7 +15,6 @@ import { Input } from '@/components/ui/Input';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { Badge } from '@/components/ui/Badge';
 import { ExplorerLink } from '@/components/ui/ExplorerLink';
-import { getBrowserProgram } from '@/lib/wallet/program';
 import { formatBaseUnits, parseDecimalAmount } from '@/lib/solana/amounts';
 import { MINT_DECIMALS, MINT } from '@/lib/anchor/constants';
 import { vaultAddress } from '@/lib/anchor/pda';
@@ -23,9 +22,56 @@ import { useSendTransaction } from '@/lib/wallet/useSendTransaction';
 import {
   buildPausePolicy,
   buildResumePolicy,
-  buildUpdatePolicy,
-  buildWithdraw,
+  buildUpdateLimits,
+  buildWithdrawVault,
 } from '@/lib/wallet/transactions';
+
+interface PolicyDetailsProps {
+  policyAddress: string;
+}
+
+interface PolicyData {
+  owner: string;
+  paused: boolean;
+  spendingLimit: bigint;
+  dailyLimit: bigint;
+  vaultBalance: bigint;
+  totalSpent: bigint;
+  vault: string;
+}
+
+// TODO: Implement proper Borsh deserialization for AgentPolicy account
+// For now, using placeholder - will deserialize account data in next iteration
+function deserializePolicyAccount(data: Buffer): any {
+  // Placeholder - need proper Borsh deserialization based on IDL
+  // Account structure from IDL:
+  // - owner: Pubkey (32 bytes)
+  // - agent: Pubkey (32 bytes)  
+  // - is_paused: bool (1 byte)
+  // - max_per_tx: u64 (8 bytes)
+  // - daily_limit: u64 (8 bytes)
+  // - spent_today: u64 (8 bytes)
+  // - last_reset_slot: u64 (8 bytes)
+  // - allowlist_count: u16 (2 bytes)
+  // - policy_id: [u8; 32] (32 bytes)
+  
+  // Anchor discriminator is first 8 bytes
+  const owner = new PublicKey(data.slice(8, 40));
+  const agent = new PublicKey(data.slice(40, 72));
+  const isPaused = data[72] === 1;
+  const maxPerTx = data.readBigUInt64LE(73);
+  const dailyLimit = data.readBigUInt64LE(81);
+  const spentToday = data.readBigUInt64LE(89);
+  
+  return {
+    owner,
+    agent,
+    isPaused,
+    maxPerTx,
+    dailyLimit,
+    spentToday,
+  };
+}
 
 interface PolicyDetailsProps {
   policyAddress: string;
@@ -66,11 +112,15 @@ export function PolicyDetails({ policyAddress }: PolicyDetailsProps) {
     setError(null);
 
     try {
-      const program = getBrowserProgram(connection);
       const policyPubkey = new PublicKey(policyAddress);
 
-      // Fetch policy account - using correct account name from IDL
-      const policyAccount = await program.account.agentPolicy.fetch(policyPubkey);
+      // Fetch policy account manually
+      const accountInfo = await connection.getAccountInfo(policyPubkey);
+      if (!accountInfo) {
+        throw new Error('Policy account not found');
+      }
+
+      const policyAccount = deserializePolicyAccount(accountInfo.data);
 
       // Fetch vault balance
       const vaultPDA = vaultAddress(policyPubkey, MINT);
@@ -79,17 +129,17 @@ export function PolicyDetails({ policyAddress }: PolicyDetailsProps) {
 
       setPolicy({
         owner: policyAccount.owner.toBase58(),
-        paused: policyAccount.paused,
-        spendingLimit: policyAccount.maxPerTx.toBigInt(),
-        dailyLimit: policyAccount.dailyLimit.toBigInt(),
+        paused: policyAccount.isPaused,
+        spendingLimit: policyAccount.maxPerTx,
+        dailyLimit: policyAccount.dailyLimit,
         vaultBalance,
-        totalSpent: policyAccount.totalSpent.toBigInt(),
+        totalSpent: policyAccount.spentToday,
         vault: vaultPDA.toBase58(),
       });
 
       // Set default form values
-      setNewSpendingLimit(formatBaseUnits(policyAccount.maxPerTx.toBigInt(), MINT_DECIMALS));
-      setNewDailyLimit(formatBaseUnits(policyAccount.dailyLimit.toBigInt(), MINT_DECIMALS));
+      setNewSpendingLimit(formatBaseUnits(policyAccount.maxPerTx, MINT_DECIMALS));
+      setNewDailyLimit(formatBaseUnits(policyAccount.dailyLimit, MINT_DECIMALS));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load policy';
       setError(message);
@@ -102,12 +152,10 @@ export function PolicyDetails({ policyAddress }: PolicyDetailsProps) {
     if (!publicKey || !policy) return;
 
     try {
-      const program = getBrowserProgram(connection);
-      const instruction = await buildPausePolicy({
-        program,
-        policyAddress: new PublicKey(policyAddress),
-        owner: publicKey,
-      });
+      const instruction = buildPausePolicy(
+        new PublicKey(policyAddress),
+        publicKey
+      );
 
       const result = await send(instruction);
       if (result) {
@@ -123,12 +171,10 @@ export function PolicyDetails({ policyAddress }: PolicyDetailsProps) {
     if (!publicKey || !policy) return;
 
     try {
-      const program = getBrowserProgram(connection);
-      const instruction = await buildResumePolicy({
-        program,
-        policyAddress: new PublicKey(policyAddress),
-        owner: publicKey,
-      });
+      const instruction = buildResumePolicy(
+        new PublicKey(policyAddress),
+        publicKey
+      );
 
       const result = await send(instruction);
       if (result) {
@@ -144,12 +190,10 @@ export function PolicyDetails({ policyAddress }: PolicyDetailsProps) {
     if (!publicKey || !newSpendingLimit || !newDailyLimit) return;
 
     try {
-      const program = getBrowserProgram(connection);
       const spendingLimit = parseDecimalAmount(newSpendingLimit, MINT_DECIMALS);
       const dailyLimit = parseDecimalAmount(newDailyLimit, MINT_DECIMALS);
 
-      const instruction = await buildUpdatePolicy(
-        program,
+      const instruction = buildUpdateLimits(
         new PublicKey(policyAddress),
         publicKey,
         spendingLimit,
@@ -170,11 +214,9 @@ export function PolicyDetails({ policyAddress }: PolicyDetailsProps) {
     if (!publicKey || !withdrawAmount) return;
 
     try {
-      const program = getBrowserProgram(connection);
       const amount = parseDecimalAmount(withdrawAmount, MINT_DECIMALS);
 
-      const instruction = await buildWithdraw(
-        program,
+      const instruction = buildWithdrawVault(
         new PublicKey(policyAddress),
         publicKey,
         amount
