@@ -7,6 +7,14 @@ import idl from "./idl/agent_payment_firewall.json";
 /** Program id, taken from the synced IDL (the IDL address is validated by scripts/sync-idl.mjs). */
 export const PROGRAM_ID = new PublicKey(idl.address);
 
+/** SPL Token mint for demo (from NEXT_PUBLIC_DEMO_MINT env variable) */
+export const MINT = new PublicKey(
+  process.env.NEXT_PUBLIC_DEMO_MINT || "So11111111111111111111111111111111111111112"
+);
+
+/** Mint decimals (default 6 for test USDC, 9 for wrapped SOL) */
+export const MINT_DECIMALS = 6;
+
 const ascii = (s: string) => new TextEncoder().encode(s);
 
 export const SEED_POLICY = ascii("policy");
