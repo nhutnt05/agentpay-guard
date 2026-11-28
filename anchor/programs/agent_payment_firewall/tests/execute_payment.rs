@@ -1,6 +1,6 @@
 //! execute_payment integration tests (docs/10 §4).
 //! T-M2-04: EP-01 (happy path with full state assertions).
-//! T-M2-05: negative cases EP-02…EP-13, EP-20, EP-21, RM-03. Each asserts the specific
+//! T-M2-05: negative cases EP-02…EP-13, EP-20, EP-21, RM-03. EP-23: agent cannot pay itself (T-29). Each asserts the specific
 //! error AND that no state changed (balances, counter, receipt).
 
 mod common;
@@ -11,6 +11,40 @@ use {
     common::*,
     solana_signer::Signer,
 };
+
+/// EP-23 (T-29): the owner rotates the agent to a wallet that is already an allowlisted
+/// merchant; the new agent must not be able to pay itself. Nothing moves.
+#[test]
+fn ep23_agent_rotated_to_allowlisted_merchant_cannot_pay_itself() {
+    let mut env = payment_env();
+    let merchant_kp = funded_keypair(&mut env.svm);
+    let merchant = merchant_kp.pubkey();
+    let owner = env.owner.insecure_clone();
+    send(
+        &mut env.svm,
+        &[add_merchant_ix(&owner.pubkey(), &env.policy, &merchant)],
+        &owner,
+        &[],
+    )
+    .expect("add merchant");
+    let merchant_ata = create_ata(&mut env.svm, &owner, &merchant, &env.mint);
+    send(
+        &mut env.svm,
+        &[update_policy_ix(&owner.pubkey(), &env.policy, None, None, Some(merchant))],
+        &owner,
+        &[],
+    )
+    .expect("rotate agent to the merchant wallet");
+
+    // Pay as the new agent (== merchant) to itself.
+    env.agent = merchant_kp;
+    env.merchant = merchant;
+    env.merchant_ata = merchant_ata;
+    let before = snapshot(&env);
+    let req = env.request(ONE);
+    let res = env.pay(&req);
+    assert_rejected(&env, &before, &req, res, custom(AgentPayError::InvalidMerchant));
+}
 
 /// EP-01: authorized agent pays an allowlisted merchant.
 /// Asserts balances, policy counter, receipt contents/size, rent payer and event.

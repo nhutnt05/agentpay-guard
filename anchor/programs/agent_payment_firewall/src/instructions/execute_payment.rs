@@ -39,7 +39,10 @@ pub struct ExecutePayment<'info> {
 
     /// CHECK: (account 3) Merchant wallet identity only — never read or written.
     /// Bound by the `merchant_allowlist` PDA seeds + `has_one = merchant`, and by the
-    /// merchant ATA check below.
+    /// merchant ATA check below. Must not be the current agent: `add_merchant` refuses the
+    /// agent, but `update_policy(new_agent)` could later make an allowlisted merchant the
+    /// agent, which would let the agent pay itself (threat T-29).
+    #[account(constraint = merchant.key() != agent.key() @ AgentPayError::InvalidMerchant)]
     pub merchant: UncheckedAccount<'info>,
 
     /// 4. Must exist for (policy, merchant). Missing → `AccountNotInitialized`.

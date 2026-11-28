@@ -3,6 +3,13 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   /* config options here */
   turbopack: {
+    // Next 16 builds with Turbopack, which ignores the `webpack` fallback below. Without this,
+    // `next build` fails: @anchor-lang/core's browser bundle references `fs`.
+    resolveAlias: {
+      fs: { browser: "./src/lib/empty-module.ts" },
+      net: { browser: "./src/lib/empty-module.ts" },
+      tls: { browser: "./src/lib/empty-module.ts" },
+    },
     rules: {
       "*.css": {
         loaders: ["@tailwindcss/turbopack"],

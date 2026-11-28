@@ -32,8 +32,13 @@ pub fn check_mint_extensions_at_init(mint: &AccountInfo, accept_issuer_powers: b
     let state = StateWithExtensions::<MintState>::unpack(&data)?;
     for ext in state.get_extension_types()? {
         match ext {
-            // Issuer can move funds out of any account of this mint, including the vault.
-            ExtensionType::PermanentDelegate => {
+            // Issuer powers:
+            // - PermanentDelegate: issuer can move funds out of any account of this mint,
+            //   including the vault.
+            // - MintCloseAuthority: once supply is 0 the issuer can close the mint and recreate
+            //   it at the same address with a different extension set (e.g. PermanentDelegate,
+            //   DefaultAccountState) that this init-time check never saw (threat T-31).
+            ExtensionType::PermanentDelegate | ExtensionType::MintCloseAuthority => {
                 require!(accept_issuer_powers, AgentPayError::IssuerPowersNotAccepted)
             }
             // Re-checked at every payment (configurable later by the issuer).
@@ -42,8 +47,7 @@ pub fn check_mint_extensions_at_init(mint: &AccountInfo, accept_issuer_powers: b
             // display-only, metadata, groups, close-at-zero-supply, issuer pause (availability
             // only), and confidential transfers (the vault never configures confidential
             // balances — that would need the policy PDA to sign ConfigureAccount).
-            ExtensionType::MintCloseAuthority
-            | ExtensionType::ConfidentialTransferMint
+            ExtensionType::ConfidentialTransferMint
             | ExtensionType::ConfidentialTransferFeeConfig
             | ExtensionType::MetadataPointer
             | ExtensionType::TokenMetadata

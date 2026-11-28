@@ -396,6 +396,23 @@ fn t22_10_pyusd_like_mint_with_opt_in() {
     assert_eq!(env.balances(), (VAULT_FUNDING - 2 * ONE, 2 * ONE, 2 * ONE));
 }
 
+/// T22-11 (T-31): MintCloseAuthority is an issuer power (close at supply 0, then recreate the
+/// mint at the same address with new extensions) → requires the owner's explicit opt-in.
+#[test]
+fn t22_11_mint_close_authority_requires_opt_in() {
+    let mut svm = new_svm();
+    let owner = funded_keypair(&mut svm);
+    let agent = Keypair::new();
+    let mint = create_mint_2022(&mut svm, &owner, &[Ext::MintClose]);
+    let (policy, res) = init_policy(&mut svm, &owner, &agent.pubkey(), &mint, false);
+    assert_error_code(res, custom(AgentPayError::IssuerPowersNotAccepted));
+    assert!(!account_exists(&svm, &policy));
+
+    let (policy, res) = init_policy(&mut svm, &owner, &agent.pubkey(), &mint, true);
+    res.expect("accepted issuer powers");
+    assert_eq!(fetch_policy(&svm, &policy).mint, mint);
+}
+
 /// Checks the extension set really is on the mint (guards the fixtures themselves).
 #[test]
 fn t22_fixture_has_extensions() {

@@ -43,7 +43,8 @@ pub struct MerchantAllowlist {
     pub bump: u8,
 }
 
-/// Proof that a canonical payment request executed. Never closed (docs/03 §6).
+/// Proof that a canonical payment request executed (docs/03 §6). Closable only via
+/// `close_receipt` after expiry + grace (F-02), when replay already fails with `RequestExpired`.
 /// Size: 8 + 177 = 185 bytes.
 #[account]
 #[derive(InitSpace)]
