@@ -1,31 +1,39 @@
-import type { SelectHTMLAttributes } from "react";
+import { type ReactNode, type SelectHTMLAttributes, useId } from "react";
+import { cn } from "@/lib/ui/cn";
+import { FieldShell, fieldClasses } from "./Input";
 
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
-  error?: string;
-  label?: string;
-  children: React.ReactNode;
+  error?: string | null;
+  label?: ReactNode;
+  hint?: ReactNode;
+  children: ReactNode;
 }
 
-export function Select({ error, label, className = "", id, children, ...props }: SelectProps) {
-  const inputId = id || label?.toLowerCase().replace(/\s+/g, "-");
-
+export function Select({ error, label, hint, className = "", id, children, ...props }: SelectProps) {
+  const autoId = useId();
+  const selectId = id ?? autoId;
   return (
-    <div className="flex flex-col gap-1">
-      {label && (
-        <label htmlFor={inputId} className="text-sm font-medium text-zinc-300">
-          {label}
-        </label>
-      )}
-      <select
-        id={inputId}
-        className={`rounded border bg-zinc-900 px-3 py-2 text-zinc-100 transition-base focus:border-[#14F195] focus:outline-none focus:ring-1 focus:ring-[#14F195] disabled:cursor-not-allowed disabled:bg-zinc-950 disabled:text-zinc-600 ${
-          error ? "border-red-500" : "border-zinc-700"
-        } ${className}`}
-        {...props}
-      >
-        {children}
-      </select>
-      {error && <p className="text-sm text-red-400">{error}</p>}
-    </div>
+    <FieldShell id={selectId} label={label} hint={hint} error={error}>
+      <div className="relative">
+        <select
+          id={selectId}
+          aria-invalid={error ? true : undefined}
+          className={cn(fieldClasses, "appearance-none pr-10", error ? "border-danger/70" : "border-line", className)}
+          {...props}
+        >
+          {children}
+        </select>
+        <svg
+          className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          aria-hidden="true"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </div>
+    </FieldShell>
   );
 }

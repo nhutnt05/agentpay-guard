@@ -53,6 +53,11 @@ export const REASON_LABELS: Record<string, string> = {
   NOT_LANDED: "Transaction did not land (safe to retry)",
   UNKNOWN_ERROR: "Unknown error",
   POLICY_NOT_SERVED: "This server's agent does not act for this policy",
+  // Access decisions of the read API (lib/server/access.ts).
+  AGENT_NOT_CONFIGURED: "No agent key is configured on this server",
+  AGENT_MISMATCH: "The policy's agent is a different key than this server's agent",
+  ALLOWLIST_NOT_CONFIGURED: "ALLOWED_POLICY_OWNERS is not configured on this server",
+  OWNER_NOT_ALLOWED: "This policy's owner is not in the server's ALLOWED_POLICY_OWNERS",
   DEMO_DISABLED: "Demo mode is disabled on the server",
 };
 

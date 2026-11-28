@@ -1,7 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // One canonical set of owner pages lives under /policies. The older /dashboard routes (a
+  // duplicate implementation with a broken "/dashboard/new" link) redirect there.
+  redirects() {
+    return [
+      { source: "/dashboard", destination: "/policies", permanent: false },
+      { source: "/dashboard/new", destination: "/policies/new", permanent: false },
+      { source: "/dashboard/policy/:policyId", destination: "/policies/:policyId", permanent: false },
+    ];
+  },
   turbopack: {
     // Next 16 builds with Turbopack, which ignores the `webpack` fallback below. Without this,
     // `next build` fails: @anchor-lang/core's browser bundle references `fs`.

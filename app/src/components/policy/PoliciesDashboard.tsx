@@ -1,127 +1,172 @@
-/**
- * Policies dashboard - list all policies owned by connected wallet
- */
+"use client";
 
-'use client';
+import { useWallet } from "@solana/wallet-adapter-react";
+import Link from "next/link";
+import { Alert } from "@/components/ui/Alert";
+import { Badge } from "@/components/ui/Badge";
+import { Button, ButtonLink } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { short } from "@/components/ui/ExplorerLink";
+import { IconArrowRight, IconBot, IconPlus, IconRefresh, IconShield } from "@/components/ui/icons";
+import { PageHeader } from "@/components/ui/SectionHeader";
+import { Skeleton } from "@/components/ui/Spinner";
+import { Meter } from "@/components/ui/StatCard";
+import { formatBaseUnits } from "@/lib/solana/amounts";
+import { type OwnerPolicySummary, useOwnerPolicies } from "@/lib/wallet/useOwnerPolicies";
+import { ConnectPrompt } from "./shared";
 
-import { useWallet } from '@solana/wallet-adapter-react';
-import Link from 'next/link';
-import { Button } from '@/components/ui/Button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
-import { SectionHeader } from '@/components/ui/SectionHeader';
-import { Badge } from '@/components/ui/Badge';
-import { short } from '@/components/ui/ExplorerLink';
-import { formatBaseUnits } from '@/lib/solana/amounts';
-import { useOwnerPolicies } from '@/lib/wallet/useOwnerPolicies';
+function PolicyCard({ p }: { p: OwnerPolicySummary }) {
+  const fmt = (v: bigint) => formatBaseUnits(v, p.decimals);
+  return (
+    <Card interactive as="article" className="flex flex-col">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <Link href={`/policies/${p.address}`} className="font-mono text-sm font-semibold text-fg hover:text-brand">
+            {short(p.address)}
+          </Link>
+          <p className="mt-0.5 text-xs text-subtle">Mint {short(p.mint)}</p>
+        </div>
+        <Badge tone={p.isPaused ? "warning" : "success"} dot>
+          {p.isPaused ? "Paused" : "Active"}
+        </Badge>
+      </div>
+
+      <dl className="mt-5 grid grid-cols-2 gap-4">
+        <div>
+          <dt className="text-xs text-subtle">Vault balance</dt>
+          <dd className="mt-1 text-lg font-semibold tabular-nums text-fg">{p.vaultBalance === null ? "—" : fmt(p.vaultBalance)}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-subtle">Max per payment</dt>
+          <dd className="mt-1 text-lg font-semibold tabular-nums text-fg">{fmt(p.maxPerTx)}</dd>
+        </div>
+      </dl>
+
+      <div className="mt-4">
+        <div className="flex justify-between text-xs text-subtle">
+          <span>Spent today</span>
+          <span className="tabular-nums text-muted">
+            {fmt(p.effectiveSpentToday)} / {fmt(p.dailyLimit)}
+          </span>
+        </div>
+        <Meter value={p.effectiveSpentToday} max={p.dailyLimit} label="Spent today vs daily limit" />
+      </div>
+
+      <div className="mt-auto flex gap-2 pt-4">
+        <ButtonLink href={`/policies/${p.address}`} size="sm" variant="secondary" className="flex-1">
+          Manage <IconArrowRight size={15} />
+        </ButtonLink>
+        <ButtonLink href={`/agent?policy=${p.address}`} size="sm" variant="ghost" icon={<IconBot size={15} />}>
+          Use with agent
+        </ButtonLink>
+      </div>
+    </Card>
+  );
+}
+
+function SkeletonGrid() {
+  return (
+    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3" aria-hidden="true">
+      {[0, 1, 2].map((i) => (
+        <Card key={i}>
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="mt-6 h-6 w-24" />
+          <Skeleton className="mt-5 h-2 w-full" />
+          <Skeleton className="mt-6 h-8 w-full" />
+        </Card>
+      ))}
+    </div>
+  );
+}
 
 export function PoliciesDashboard() {
   const { publicKey } = useWallet();
-  const { policies, loading, error } = useOwnerPolicies(publicKey);
+  const { policies, loading, error, reload } = useOwnerPolicies(publicKey);
+
+  const header = (
+    <PageHeader
+      title="Policies"
+      description="Each policy is an on-chain firewall: a vault, an agent key, spending limits and a merchant allowlist."
+      actions={
+        publicKey && (
+          <>
+            <Button variant="ghost" onClick={() => void reload()} disabled={loading} icon={<IconRefresh size={16} />}>
+              Refresh
+            </Button>
+            <ButtonLink href="/policies/new" icon={<IconPlus size={16} />}>
+              New policy
+            </ButtonLink>
+          </>
+        )
+      }
+    />
+  );
 
   if (!publicKey) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold text-white mb-4">
-            Connect Your Wallet
-          </h1>
-          <p className="text-gray-400 mb-8">
-            Connect your Phantom or Solflare wallet to view and manage your payment policies
-          </p>
-        </div>
-      </div>
+      <>
+        {header}
+        <ConnectPrompt description="Connect the wallet that owns your policies (Devnet). Without a wallet you can still explore the Security Demo and the AI Playground." />
+        <p className="mt-6 text-center text-sm text-muted">
+          Just looking?{" "}
+          <Link href="/security" className="font-medium text-brand hover:underline">
+            Watch the firewall block attacks →
+          </Link>
+        </p>
+      </>
     );
   }
 
+  const active = policies.filter((p) => !p.isPaused).length;
+
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8 flex items-center justify-between">
-        <SectionHeader
-          title="My Policies"
-          description="Manage your AI agent payment policies"
-        />
-        <Link href="/policies/new">
-          <Button>Create Policy</Button>
-        </Link>
-      </div>
-
-      {/* Policy list, read from chain (owner memcmp on AgentPolicy accounts) */}
-      {loading ? (
-        <p className="text-gray-400">Loading policies…</p>
-      ) : error ? (
-        <Card>
-          <CardContent className="py-4 text-sm text-red-400">{error}</CardContent>
-        </Card>
-      ) : policies.length > 0 ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {policies.map((p) => (
-            <Link key={p.address} href={`/policies/${p.address}`}>
-              <Card className="hover:border-[#14F195]">
-                <CardHeader>
-                  <CardTitle className="flex items-start justify-between">
-                    <span className="font-mono text-base">{short(p.address)}</span>
-                    <Badge tone={p.isPaused ? 'warning' : 'success'}>{p.isPaused ? 'Paused' : 'Active'}</Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <div className="text-gray-500">Vault</div>
-                    <div className="text-white">
-                      {p.vaultBalance === null ? '—' : formatBaseUnits(p.vaultBalance, p.decimals)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-gray-500">Spent today / limit</div>
-                    <div className="text-white">
-                      {formatBaseUnits(p.effectiveSpentToday, p.decimals)} / {formatBaseUnits(p.dailyLimit, p.decimals)}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
-        </div>
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>Getting Started</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-gray-400 mb-6">
-              You haven&apos;t created any policies yet. Create your first policy to start
-              securing your AI agent payments.
-            </p>
-            <Link href="/policies/new">
-              <Button>Create Your First Policy</Button>
-            </Link>
-          </CardContent>
-        </Card>
+    <>
+      {header}
+      {error && (
+        <Alert tone="danger" title="Could not load your policies" className="mb-6" action={<Button size="sm" variant="secondary" onClick={() => void reload()}>Try again</Button>}>
+          {error}
+        </Alert>
       )}
-
-      {/* Info Cards */}
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+      {loading && policies.length === 0 ? (
+        <SkeletonGrid />
+      ) : policies.length === 0 && !error ? (
         <Card>
-          <CardContent className="p-6">
-            <h3 className="text-lg font-semibold text-white mb-2">
-              💰 Set Spending Limits
-            </h3>
-            <p className="text-gray-400 text-sm">
-              Control exactly how much your AI agent can spend per transaction and per day
-            </p>
-          </CardContent>
+          <EmptyState
+            icon={<IconShield size={24} />}
+            title="No policies yet"
+            description="Create your first policy: choose the agent key, set per-payment and daily limits, then allowlist the merchants it may pay."
+            action={
+              <ButtonLink href="/policies/new" icon={<IconPlus size={16} />}>
+                Create your first policy
+              </ButtonLink>
+            }
+          />
         </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <h3 className="text-lg font-semibold text-white mb-2">
-              🛡️ AI-Powered Security
-            </h3>
-            <p className="text-gray-400 text-sm">
-              Intent analysis automatically detects and blocks malicious merchants
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+      ) : (
+        <>
+          <div className="mb-6 flex flex-wrap gap-3 text-sm animate-fade-in">
+            <span className="rounded-full border border-line bg-surface px-3 py-1 text-muted">
+              <span className="font-semibold text-fg">{policies.length}</span> {policies.length === 1 ? "policy" : "policies"}
+            </span>
+            <span className="rounded-full border border-line bg-surface px-3 py-1 text-muted">
+              <span className="font-semibold text-brand">{active}</span> active
+            </span>
+            {policies.length - active > 0 && (
+              <span className="rounded-full border border-line bg-surface px-3 py-1 text-muted">
+                <span className="font-semibold text-warning">{policies.length - active}</span> paused
+              </span>
+            )}
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {policies.map((p, i) => (
+              <div key={p.address} className="animate-fade-up" style={{ animationDelay: `${Math.min(i, 8) * 50}ms` }}>
+                <PolicyCard p={p} />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </>
   );
 }

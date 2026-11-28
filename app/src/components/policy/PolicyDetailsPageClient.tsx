@@ -1,26 +1,19 @@
-/**
- * Client wrapper for Policy Details Page
- * Handles wallet-dependent policy details rendering
- */
+"use client";
 
-'use client';
+import dynamic from "next/dynamic";
+import { Container } from "@/components/ui/Container";
+import { LoadingBlock } from "@/components/ui/Spinner";
 
-import dynamic from 'next/dynamic';
-import { Navigation } from '@/components/ui/Navigation';
-
-// Dynamic import to avoid SSR issues with Anchor
-const PolicyDetails = dynamic(
-  () => import('@/components/policy/PolicyDetails').then(mod => ({ default: mod.PolicyDetails })),
-  { ssr: false }
-);
+// Client-only: the component uses the browser wallet and the Anchor client.
+const PolicyDetails = dynamic(() => import("@/components/policy/PolicyDetails").then((m) => ({ default: m.PolicyDetails })), {
+  ssr: false,
+  loading: () => <LoadingBlock label="Loading policy…" />,
+});
 
 export function PolicyDetailsPageClient({ policyId }: { policyId: string }) {
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-b from-gray-950 to-gray-900">
-      <Navigation />
-      <main className="flex-1">
-        <PolicyDetails policyAddress={policyId} />
-      </main>
-    </div>
+    <Container size="lg">
+      <PolicyDetails policyAddress={policyId} />
+    </Container>
   );
 }

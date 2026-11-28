@@ -1,410 +1,406 @@
-/**
- * Policy details component
- * Shows policy info, controls (pause/resume/update/withdraw)
- */
+"use client";
 
-'use client';
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { PublicKey } from "@solana/web3.js";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { Address } from "@/components/ui/Address";
+import { Alert } from "@/components/ui/Alert";
+import { Badge } from "@/components/ui/Badge";
+import { Button, ButtonLink } from "@/components/ui/Button";
+import { Card, CardHeader } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { IconBot, IconPause, IconPlay, IconRefresh, IconSettings, IconStore, IconVault } from "@/components/ui/icons";
+import { Input } from "@/components/ui/Input";
+import { PageHeader } from "@/components/ui/SectionHeader";
+import { LoadingBlock } from "@/components/ui/Spinner";
+import { Meter, StatCard } from "@/components/ui/StatCard";
+import { getProgram, readOnlyWallet } from "@/lib/anchor/program";
+import { usePolicyData } from "@/lib/client/usePolicyData";
+import { reasonLabel } from "@/lib/demo/labels";
+import { AGENT_IS_MERCHANT_WARNING, agentIsAllowlistedMerchant, newAgentWarning } from "@/lib/policy/warnings";
+import { formatBaseUnits, parseDecimalAmount } from "@/lib/solana/amounts";
+import { buildPausePolicy, buildResumePolicy, buildUpdatePolicy, buildWithdraw } from "@/lib/wallet/transactions";
+import { useSendTransaction } from "@/lib/wallet/useSendTransaction";
+import { isBase58Address, PolicyTabs, short, TxFeedback } from "./shared";
 
-import { useCallback, useEffect, useState } from 'react';
-import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import { PublicKey } from '@solana/web3.js';
-import Link from 'next/link';
-import { Button } from '@/components/ui/Button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { SectionHeader } from '@/components/ui/SectionHeader';
-import { Badge } from '@/components/ui/Badge';
-import { ExplorerLink } from '@/components/ui/ExplorerLink';
-import { formatBaseUnits, parseDecimalAmount } from '@/lib/solana/amounts';
-import { MINT_DECIMALS } from '@/lib/anchor/constants';
-import { getReadonlyProgram } from '@/lib/anchor/program';
-import { useSendTransaction } from '@/lib/wallet/useSendTransaction';
-import {
-  pausePolicyIx,
-  resumePolicyIx,
-  updateLimitsIx,
-  withdrawVaultIx,
-} from '@/lib/wallet/transactions';
-
-interface PolicyDetailsProps {
-  policyAddress: string;
-}
-
-interface PolicyData {
-  owner: string;
-  paused: boolean;
-  spendingLimit: bigint;
-  dailyLimit: bigint;
-  vaultBalance: bigint;
-  totalSpent: bigint;
-  vault: string;
-}
-
-export function PolicyDetails({ policyAddress }: PolicyDetailsProps) {
-  const { publicKey } = useWallet();
-  const { connection } = useConnection();
-  const { send, loading: txLoading, error: txError } = useSendTransaction();
-
-  const [policy, setPolicy] = useState<PolicyData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-
-  // Form states
-  const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [newSpendingLimit, setNewSpendingLimit] = useState('');
-  const [newDailyLimit, setNewDailyLimit] = useState('');
-
-  // Decode with the IDL coder (discriminator + exact `AgentPolicy` layout). The earlier
-  // hand-written decoder used an outdated layout and showed wrong pause state and limits.
-  const loadPolicy = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const policyPubkey = new PublicKey(policyAddress);
-      const program = getReadonlyProgram(connection, policyPubkey);
-      const account = await program.account.agentPolicy.fetchNullable(policyPubkey);
-      if (!account) {
-        throw new Error('Policy account not found');
-      }
-
-      // The vault address is stored in the policy (works for any mint / token program).
-      const vaultInfo = await connection.getTokenAccountBalance(account.vault);
-      const maxPerTx = BigInt(account.maxPerTx.toString());
-      const dailyLimit = BigInt(account.dailyLimit.toString());
-
-      setPolicy({
-        owner: account.owner.toBase58(),
-        paused: account.isPaused,
-        spendingLimit: maxPerTx,
-        dailyLimit,
-        vaultBalance: BigInt(vaultInfo.value.amount),
-        totalSpent: BigInt(account.spentToday.toString()),
-        vault: account.vault.toBase58(),
-      });
-
-      // Set default form values
-      setNewSpendingLimit(formatBaseUnits(maxPerTx, MINT_DECIMALS));
-      setNewDailyLimit(formatBaseUnits(dailyLimit, MINT_DECIMALS));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load policy';
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
-  }, [connection, policyAddress]);
-
-  useEffect(() => {
-    // Data fetch on mount / policy change; state is set after the await, not synchronously.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadPolicy();
-  }, [loadPolicy]);
-
-  const handlePause = async () => {
-    if (!publicKey || !policy) return;
-
-    try {
-      const instruction = await pausePolicyIx(
-        new PublicKey(policyAddress),
-        publicKey
-      );
-
-      const result = await send(instruction);
-      if (result) {
-        setSuccess(`Policy paused! Signature: ${result.signature}`);
-        await loadPolicy();
-      }
-    } catch (err) {
-      console.error('Pause failed:', err);
-    }
-  };
-
-  const handleResume = async () => {
-    if (!publicKey || !policy) return;
-
-    try {
-      const instruction = await resumePolicyIx(
-        new PublicKey(policyAddress),
-        publicKey
-      );
-
-      const result = await send(instruction);
-      if (result) {
-        setSuccess(`Policy resumed! Signature: ${result.signature}`);
-        await loadPolicy();
-      }
-    } catch (err) {
-      console.error('Resume failed:', err);
-    }
-  };
-
-  const handleUpdate = async () => {
-    if (!publicKey || !newSpendingLimit || !newDailyLimit) return;
-
-    try {
-      const spendingLimit = parseDecimalAmount(newSpendingLimit, MINT_DECIMALS);
-      const dailyLimit = parseDecimalAmount(newDailyLimit, MINT_DECIMALS);
-
-      const instruction = await updateLimitsIx(
-        new PublicKey(policyAddress),
-        publicKey,
-        spendingLimit,
-        dailyLimit
-      );
-
-      const result = await send(instruction);
-      if (result) {
-        setSuccess(`Policy updated! Signature: ${result.signature}`);
-        await loadPolicy();
-      }
-    } catch (err) {
-      console.error('Update failed:', err);
-    }
-  };
-
-  const handleWithdraw = async () => {
-    if (!publicKey || !withdrawAmount) return;
-
-    try {
-      const amount = parseDecimalAmount(withdrawAmount, MINT_DECIMALS);
-
-      const instruction = await withdrawVaultIx(
-        new PublicKey(policyAddress),
-        publicKey,
-        amount
-      );
-
-      const result = await send(instruction);
-      if (result) {
-        setSuccess(`Withdrawal successful! Signature: ${result.signature}`);
-        setWithdrawAmount('');
-        await loadPolicy();
-      }
-    } catch (err) {
-      console.error('Withdraw failed:', err);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <div className="text-center text-gray-400">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#14F195] mx-auto mb-4"></div>
-          Loading policy...
-        </div>
-      </div>
-    );
+function parseAmount(value: string, decimals: number): bigint | null {
+  if (!value.trim()) return null;
+  try {
+    const v = parseDecimalAmount(value.trim(), decimals);
+    return v > 0n ? v : null;
+  } catch {
+    return null;
   }
+}
+
+export function PolicyDetails({ policyAddress }: { policyAddress: string }) {
+  const { connection } = useConnection();
+  const { publicKey, connected } = useWallet();
+  const { policy, merchants, loading, refreshing, error, reload } = usePolicyData(policyAddress);
+
+  const pauseTx = useSendTransaction();
+  const withdrawTx = useSendTransaction();
+  const updateTx = useSendTransaction();
+
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [newMaxPerTx, setNewMaxPerTx] = useState("");
+  const [newDailyLimit, setNewDailyLimit] = useState("");
+  const [newAgent, setNewAgent] = useState("");
+
+  // Reload on-chain state shortly after any confirmed owner transaction.
+  const lastSig = pauseTx.signature ?? withdrawTx.signature ?? updateTx.signature;
+  useEffect(() => {
+    if (!lastSig) return;
+    const t = setTimeout(() => void reload(), 1500);
+    return () => clearTimeout(t);
+  }, [lastSig, reload]);
+
+  if (loading) return <LoadingBlock label="Reading policy from chain…" />;
 
   if (error || !policy) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <Card>
-          <CardContent className="text-center py-12">
-            <h2 className="text-2xl font-bold text-white mb-4">Error</h2>
-            <p className="text-red-400">{error || 'Policy not found'}</p>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="mx-auto max-w-xl">
+        <EmptyState
+          icon={<IconVault size={24} />}
+          title="Policy not found"
+          description={error ?? "There is no AgentPay Guard policy at this address on devnet."}
+          action={
+            <>
+              <Button variant="secondary" onClick={() => void reload("initial")}>
+                Try again
+              </Button>
+              <ButtonLink href="/policies">Back to policies</ButtonLink>
+            </>
+          }
+        />
+      </Card>
     );
   }
 
-  const isOwner = publicKey && policy.owner === publicKey.toBase58();
+  const decimals: number = policy.decimals ?? 6;
+  const fmt = (units: string | bigint | null | undefined) => (units === null || units === undefined ? "—" : formatBaseUnits(BigInt(units), decimals));
+  const vaultBalance = BigInt(policy.vaultBalance ?? "0");
+  const dailyLimit = BigInt(policy.dailyLimit);
+  const maxPerTx = BigInt(policy.maxPerTx);
+  const spentToday = BigInt(policy.derived?.effectiveSpentToday ?? "0");
+  const isOwner = connected && publicKey?.toBase58() === policy.owner;
+  const merchantList = merchants.map((m) => m.merchant as string);
+  const agentIsMerchant = agentIsAllowlistedMerchant(policy.agent, merchantList);
+
+  // Withdraw validation
+  const withdrawUnits = parseAmount(withdrawAmount, decimals);
+  const withdrawError =
+    withdrawAmount.trim() === "" ? null : !withdrawUnits ? "Enter an amount greater than 0." : withdrawUnits > vaultBalance ? "More than the vault holds." : null;
+
+  // Update validation (validate the resulting limits, like the program does)
+  const nextMax = newMaxPerTx.trim() ? parseAmount(newMaxPerTx, decimals) : maxPerTx;
+  const nextDaily = newDailyLimit.trim() ? parseAmount(newDailyLimit, decimals) : dailyLimit;
+  const agentInput = newAgent.trim();
+  const updateErrors = {
+    max: newMaxPerTx.trim() && !nextMax ? "Enter an amount greater than 0." : nextMax && nextDaily && nextMax > nextDaily ? "Cannot exceed the daily limit." : null,
+    daily: newDailyLimit.trim() && !nextDaily ? "Enter an amount greater than 0." : null,
+    agent:
+      agentInput && !isBase58Address(agentInput)
+        ? "Not a valid Solana address."
+        : agentInput && agentInput === policy.owner
+          ? "The agent must differ from the owner."
+          : null,
+  };
+  const agentWarn = agentInput && isBase58Address(agentInput) ? newAgentWarning(agentInput, merchantList) : null;
+  const hasUpdate = Boolean(newMaxPerTx.trim() || newDailyLimit.trim() || agentInput);
+  const updateValid = hasUpdate && !updateErrors.max && !updateErrors.daily && !updateErrors.agent;
+
+  const policyIdBytes = () => new Uint8Array(Buffer.from(policy.policyIdHex, "hex"));
+  const program = () => getProgram(connection, readOnlyWallet(publicKey!));
+
+  async function togglePause() {
+    if (!publicKey || !isOwner) return;
+    try {
+      const build = policy!.isPaused ? buildResumePolicy : buildPausePolicy;
+      await pauseTx.sendTransaction(await build({ program: program(), owner: publicKey, policyId: policyIdBytes() }));
+    } catch (e) {
+      console.error("pause/resume failed:", e);
+    }
+  }
+
+  async function withdraw(e: React.FormEvent) {
+    e.preventDefault();
+    if (!publicKey || !isOwner || !withdrawUnits || withdrawError) return;
+    try {
+      const tx = await buildWithdraw({
+        program: program(),
+        owner: publicKey,
+        policyId: policyIdBytes(),
+        mint: new PublicKey(policy!.mint),
+        amount: withdrawUnits,
+      });
+      if (await withdrawTx.sendTransaction(tx)) setWithdrawAmount("");
+    } catch (err) {
+      console.error("withdraw failed:", err);
+    }
+  }
+
+  async function update(e: React.FormEvent) {
+    e.preventDefault();
+    if (!publicKey || !isOwner || !updateValid) return;
+    try {
+      const tx = await buildUpdatePolicy({
+        program: program(),
+        owner: publicKey,
+        policyId: policyIdBytes(),
+        newAgent: agentInput ? new PublicKey(agentInput) : undefined,
+        newMaxPerTx: newMaxPerTx.trim() ? (nextMax ?? undefined) : undefined,
+        newDailyLimit: newDailyLimit.trim() ? (nextDaily ?? undefined) : undefined,
+      });
+      if (await updateTx.sendTransaction(tx)) {
+        setNewMaxPerTx("");
+        setNewDailyLimit("");
+        setNewAgent("");
+      }
+    } catch (err) {
+      console.error("update failed:", err);
+    }
+  }
+
+  const ownerDisabledHint = !connected ? "Connect the owner wallet to use this." : !isOwner ? "Only the policy owner can do this." : undefined;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Header */}
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <SectionHeader title="Policy Details" description={policyAddress} />
-        </div>
-        <Badge tone={policy.paused ? 'danger' : 'success'}>
-          {policy.paused ? 'Paused' : 'Active'}
-        </Badge>
+    <>
+      <PageHeader
+        crumbs={[{ label: "Policies", href: "/policies" }, { label: short(policy.address) }]}
+        eyebrow={
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={policy.isPaused ? "warning" : "success"} dot>
+              {policy.isPaused ? "Paused — payments blocked" : "Active"}
+            </Badge>
+            {isOwner && <Badge tone="info">You own this policy</Badge>}
+          </div>
+        }
+        title={<span className="font-mono">{short(policy.address)}</span>}
+        description={<Address value={policy.address} full className="mt-1" />}
+        actions={
+          <>
+            <Button variant="ghost" onClick={() => void reload()} loading={refreshing} icon={<IconRefresh size={16} />}>
+              Refresh
+            </Button>
+            <ButtonLink href={`/agent?policy=${policy.address}`} variant="secondary" icon={<IconBot size={16} />}>
+              Test with agent
+            </ButtonLink>
+          </>
+        }
+      />
+      <PolicyTabs policyId={policy.address} />
+
+      <div className="space-y-4">
+        {agentIsMerchant && <Alert tone="warning" title="Configuration warning">{AGENT_IS_MERCHANT_WARNING}</Alert>}
+        {!connected && (
+          <Alert tone="info" title="Read-only view">
+            Connect the owner wallet to pause, withdraw or change limits. Anyone can read a policy — it is public on-chain data.
+          </Alert>
+        )}
+        {connected && !isOwner && (
+          <Alert tone="info" title="You are not the owner">
+            The connected wallet is not this policy&apos;s owner, so management actions are disabled.
+          </Alert>
+        )}
+        {policy.servedByThisAgent === false && (
+          <Alert tone="info" title="This server's agent does not pay for this policy">
+            {reasonLabel(policy.accessReason) ?? policy.accessReason}. Payments through this app&apos;s agent will be refused before reaching the chain.
+          </Alert>
+        )}
       </div>
 
-      {/* Not Owner Warning */}
-      {!isOwner && (
-        <div className="bg-yellow-500/10 border border-yellow-500 rounded-lg p-4 mb-8">
-          <p className="text-yellow-400 text-sm">
-            ⚠️ You are not the owner of this policy. Management actions are disabled.
-          </p>
-        </div>
-      )}
+      {/* Stats */}
+      <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Policy status">
+        <StatCard label="Vault balance" value={fmt(vaultBalance)} accent icon={<IconVault size={16} />} subtitle="Available to the agent within limits" />
+        <StatCard label="Spent today (UTC)" value={fmt(spentToday)} subtitle={`of ${fmt(dailyLimit)} daily limit`}>
+          <Meter value={spentToday} max={dailyLimit} label="Spent today vs daily limit" />
+        </StatCard>
+        <StatCard label="Max per payment" value={fmt(maxPerTx)} subtitle="Larger payments are rejected" />
+        <StatCard
+          label="Status"
+          value={policy.isPaused ? <span className="text-warning">Paused</span> : <span className="text-brand">Active</span>}
+          subtitle={policy.createdAt ? `Created ${new Date(policy.createdAt * 1000).toLocaleDateString()}` : undefined}
+        />
+      </section>
 
-      {/* Success Message */}
-      {success && (
-        <div className="bg-green-500/10 border border-green-500 rounded-lg p-4 mb-8">
-          <p className="text-green-400 text-sm">{success}</p>
-        </div>
-      )}
+      <div className="mt-6 grid gap-6 lg:grid-cols-[1.1fr_1fr]">
+        {/* Left column */}
+        <div className="space-y-6">
+          <Card>
+            <CardHeader title="Accounts" description="Everything here is read from chain on each load." />
+            <dl className="divide-y divide-line">
+              {[
+                ["Owner", policy.owner, "Signs management actions"],
+                ["Agent", policy.agent, "Signs payments"],
+                ["Vault", policy.vault, "Holds the funds (program-controlled)"],
+                ["Token mint", policy.mint, `${decimals} decimals`],
+              ].map(([label, value, hint]) => (
+                <div key={label} className="flex flex-wrap items-center justify-between gap-2 py-3 first:pt-0 last:pb-0">
+                  <dt>
+                    <div className="text-sm font-medium text-fg">{label}</div>
+                    <div className="text-xs text-subtle">{hint}</div>
+                  </dt>
+                  <dd>
+                    <Address value={value} />
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </Card>
 
-      {/* Transaction Error */}
-      {txError && (
-        <div className="bg-red-500/10 border border-red-500 rounded-lg p-4 mb-8">
-          <p className="text-red-400 text-sm">{txError}</p>
-        </div>
-      )}
+          <Card>
+            <CardHeader icon={<IconVault size={18} />} title="Fund the vault" description="There is no deposit instruction: send tokens of this mint to the vault address with any wallet." />
+            <Address value={policy.vault} full />
+            <p className="mt-3 text-xs text-subtle">Only tokens of mint {short(policy.mint)} count. Anyone can top up; only the owner can withdraw.</p>
+          </Card>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <Card>
-          <CardContent className="p-6">
-            <div className="text-sm text-gray-400 mb-1">Vault Balance</div>
-            <div className="text-2xl font-bold text-[#14F195]">
-              {formatBaseUnits(policy.vaultBalance, MINT_DECIMALS)}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="text-sm text-gray-400 mb-1">Total Spent</div>
-            <div className="text-2xl font-bold text-white">
-              {formatBaseUnits(policy.totalSpent, MINT_DECIMALS)}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="text-sm text-gray-400 mb-1">Daily Limit</div>
-            <div className="text-2xl font-bold text-white">
-              {formatBaseUnits(policy.dailyLimit, MINT_DECIMALS)}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="text-sm text-gray-400 mb-1">Per-Tx Limit</div>
-            <div className="text-2xl font-bold text-white">
-              {formatBaseUnits(policy.spendingLimit, MINT_DECIMALS)}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Policy Controls */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Policy Controls</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {policy.paused ? (
-              <Button
-                onClick={handleResume}
-                disabled={!isOwner || txLoading}
-                className="w-full bg-green-600 hover:bg-green-700"
-              >
-                {txLoading ? 'Processing...' : 'Resume Policy'}
-              </Button>
+          <Card>
+            <CardHeader
+              icon={<IconStore size={18} />}
+              title="Allowlisted merchants"
+              description={`${merchants.length} merchant${merchants.length === 1 ? "" : "s"} the agent may pay`}
+              action={
+                <ButtonLink href={`/policies/${policy.address}/merchants`} size="sm" variant="secondary">
+                  Manage
+                </ButtonLink>
+              }
+            />
+            {merchants.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-line-strong px-4 py-6 text-center text-sm text-muted">
+                No merchants yet — the agent cannot pay anyone.{" "}
+                <Link href={`/policies/${policy.address}/merchants`} className="font-medium text-brand hover:underline">
+                  Add one
+                </Link>
+              </p>
             ) : (
-              <Button
-                onClick={handlePause}
-                disabled={!isOwner || txLoading}
-                className="w-full bg-red-600 hover:bg-red-700"
-              >
-                {txLoading ? 'Processing...' : 'Pause Policy'}
-              </Button>
+              <ul className="space-y-2">
+                {merchants.slice(0, 4).map((m) => (
+                  <li key={m.merchant} className="flex items-center justify-between gap-2 rounded-xl border border-line bg-canvas/40 px-3 py-2">
+                    <Address value={m.merchant} />
+                    {m.merchant === policy.agent ? <Badge tone="danger">Is the agent</Badge> : <Badge tone="success">Allowed</Badge>}
+                  </li>
+                ))}
+                {merchants.length > 4 && (
+                  <li className="text-center text-sm">
+                    <Link href={`/policies/${policy.address}/merchants`} className="text-brand hover:underline">
+                      View all {merchants.length}
+                    </Link>
+                  </li>
+                )}
+              </ul>
             )}
+          </Card>
+        </div>
 
-            <div className="border-t border-gray-700 pt-4">
-              <h4 className="text-sm font-medium text-gray-300 mb-3">Update Limits</h4>
-              <div className="space-y-3">
-                <Input
-                  type="number"
-                  step="0.000001"
-                  placeholder="Per-Tx Limit"
-                  value={newSpendingLimit}
-                  onChange={(e) => setNewSpendingLimit(e.target.value)}
-                  disabled={!isOwner || txLoading}
-                />
-                <Input
-                  type="number"
-                  step="0.000001"
-                  placeholder="Daily Limit"
-                  value={newDailyLimit}
-                  onChange={(e) => setNewDailyLimit(e.target.value)}
-                  disabled={!isOwner || txLoading}
-                />
-                <Button
-                  onClick={handleUpdate}
-                  disabled={!isOwner || txLoading || !newSpendingLimit || !newDailyLimit}
-                  className="w-full"
-                >
-                  {txLoading ? 'Processing...' : 'Update Limits'}
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Withdraw */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Withdraw Funds</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">
-                Available: {formatBaseUnits(policy.vaultBalance, MINT_DECIMALS)}
-              </label>
-              <Input
-                type="number"
-                step="0.000001"
-                placeholder="Amount"
-                value={withdrawAmount}
-                onChange={(e) => setWithdrawAmount(e.target.value)}
-                disabled={!isOwner || txLoading}
+        {/* Right column: owner actions */}
+        <div className="space-y-6">
+          <Card variant={policy.isPaused ? "warning" : "default"}>
+            <CardHeader
+              icon={policy.isPaused ? <IconPlay size={18} /> : <IconPause size={18} />}
+              title="Emergency control"
+              description={
+                policy.isPaused
+                  ? "Payments are blocked. Resume to let the agent pay allowlisted merchants again."
+                  : "Pausing blocks every agent payment immediately. Withdraw stays available."
+              }
+            />
+            <Button
+              variant={policy.isPaused ? "primary" : "danger"}
+              className="w-full"
+              size="lg"
+              onClick={togglePause}
+              loading={pauseTx.loading}
+              disabled={!isOwner}
+              title={ownerDisabledHint}
+              icon={policy.isPaused ? <IconPlay size={18} /> : <IconPause size={18} />}
+            >
+              {policy.isPaused ? "Resume payments" : "Pause all payments"}
+            </Button>
+            {ownerDisabledHint && <p className="mt-2 text-center text-xs text-subtle">{ownerDisabledHint}</p>}
+            <div className="mt-3">
+              <TxFeedback
+                loading={false}
+                error={pauseTx.error}
+                signature={pauseTx.signature}
+                successTitle={policy.isPaused ? "Policy paused" : "Policy resumed"}
+                onDismiss={pauseTx.reset}
               />
             </div>
-            <Button
-              onClick={handleWithdraw}
-              disabled={!isOwner || txLoading || !withdrawAmount}
-              className="w-full"
-            >
-              {txLoading ? 'Processing...' : 'Withdraw'}
-            </Button>
-          </CardContent>
-        </Card>
+          </Card>
 
-        {/* Quick Links */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Manage</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Link href={`/policies/${policyAddress}/merchants`}>
-              <Button className="w-full" disabled={!isOwner}>
-                Manage Merchants
+          <Card>
+            <CardHeader icon={<IconVault size={18} />} title="Withdraw" description="Move tokens from the vault back to your own token account." />
+            <form onSubmit={withdraw} noValidate className="space-y-4">
+              <Input
+                label="Amount"
+                inputMode="decimal"
+                placeholder="0.00"
+                value={withdrawAmount}
+                onChange={(e) => setWithdrawAmount(e.target.value)}
+                disabled={!isOwner || withdrawTx.loading}
+                error={withdrawError}
+                hint={`Available: ${fmt(vaultBalance)}`}
+                suffix="tokens"
+                labelAction={
+                  isOwner && vaultBalance > 0n ? (
+                    <button type="button" className="text-xs font-medium text-brand hover:text-brand-strong" onClick={() => setWithdrawAmount(fmt(vaultBalance).replace(/,/g, ""))}>
+                      Max
+                    </button>
+                  ) : undefined
+                }
+              />
+              <Button type="submit" variant="secondary" className="w-full" loading={withdrawTx.loading} disabled={!isOwner || !withdrawUnits || Boolean(withdrawError)}>
+                Withdraw to my wallet
               </Button>
-            </Link>
-            <Link href={`/policies/${policyAddress}/payments`}>
-              <Button className="w-full">View Payment History</Button>
-            </Link>
-          </CardContent>
-        </Card>
+              <TxFeedback error={withdrawTx.error} signature={withdrawTx.signature} successTitle="Withdrawal confirmed" onDismiss={withdrawTx.reset} />
+            </form>
+          </Card>
 
-        {/* Policy Info */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Policy Information</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">Owner</label>
-              <ExplorerLink href={`https://explorer.solana.com/address/${policy.owner}?cluster=devnet`} label={policy.owner} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">Vault</label>
-              <ExplorerLink href={`https://explorer.solana.com/address/${policy.vault}?cluster=devnet`} label={policy.vault} />
-            </div>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader icon={<IconSettings size={18} />} title="Update policy" description="Leave a field empty to keep its current value. Today's spend is not reset." />
+            <form onSubmit={update} noValidate className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input
+                  label="Max per payment"
+                  inputMode="decimal"
+                  placeholder={fmt(maxPerTx)}
+                  value={newMaxPerTx}
+                  onChange={(e) => setNewMaxPerTx(e.target.value)}
+                  disabled={!isOwner || updateTx.loading}
+                  error={updateErrors.max}
+                />
+                <Input
+                  label="Daily limit"
+                  inputMode="decimal"
+                  placeholder={fmt(dailyLimit)}
+                  value={newDailyLimit}
+                  onChange={(e) => setNewDailyLimit(e.target.value)}
+                  disabled={!isOwner || updateTx.loading}
+                  error={updateErrors.daily}
+                />
+              </div>
+              <Input
+                label="Replace agent"
+                placeholder="New agent public key (optional)"
+                value={newAgent}
+                onChange={(e) => setNewAgent(e.target.value)}
+                disabled={!isOwner || updateTx.loading}
+                error={updateErrors.agent}
+                hint="The old agent loses access as soon as this confirms."
+                className="font-mono"
+                spellCheck={false}
+              />
+              {agentWarn && <Alert tone="warning">{agentWarn}</Alert>}
+              <Button type="submit" variant="secondary" className="w-full" loading={updateTx.loading} disabled={!isOwner || !updateValid}>
+                Save changes
+              </Button>
+              <TxFeedback error={updateTx.error} signature={updateTx.signature} successTitle="Policy updated" onDismiss={updateTx.reset} />
+            </form>
+          </Card>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

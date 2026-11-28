@@ -1,16 +1,48 @@
 import type { Tone } from "@/lib/demo/labels";
+import { cn } from "@/lib/ui/cn";
 
 const TONES: Record<Tone, string> = {
-  success: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
-  warning: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
-  danger: "bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200",
-  info: "bg-sky-100 text-sky-900 dark:bg-sky-950 dark:text-sky-200",
-  neutral: "bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200",
+  success: "bg-brand/10 text-brand border-brand/25",
+  warning: "bg-warning/10 text-warning border-warning/30",
+  danger: "bg-danger/10 text-danger border-danger/30",
+  info: "bg-info/10 text-info border-info/30",
+  neutral: "bg-elevated text-muted border-line-strong",
 };
 
-export function Badge({ tone, children, className = "" }: { tone: Tone; children: React.ReactNode; className?: string }) {
+const DOTS: Record<Tone, string> = {
+  success: "bg-brand",
+  warning: "bg-warning",
+  danger: "bg-danger",
+  info: "bg-info",
+  neutral: "bg-subtle",
+};
+
+export function Badge({
+  tone,
+  children,
+  className = "",
+  dot = false,
+}: {
+  tone: Tone;
+  children: React.ReactNode;
+  className?: string;
+  /** Leading status dot (pulses for success). */
+  dot?: boolean;
+}) {
   return (
-    <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${TONES[tone]} ${className}`}>
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap",
+        TONES[tone],
+        className,
+      )}
+    >
+      {dot && (
+        <span className="relative flex h-1.5 w-1.5">
+          {tone === "success" && <span className={cn("absolute inline-flex h-full w-full animate-ping rounded-full opacity-60", DOTS[tone])} />}
+          <span className={cn("relative inline-flex h-1.5 w-1.5 rounded-full", DOTS[tone])} />
+        </span>
+      )}
       {children}
     </span>
   );

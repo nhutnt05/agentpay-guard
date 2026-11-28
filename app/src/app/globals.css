@@ -1,38 +1,181 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ---------------------------------------------------------------------------------------------
+   AgentPay Guard design system — one dark theme (Web3 dashboards are read in dark; a single
+   theme avoids the light/dark mismatch the app had). Tokens become Tailwind utilities:
+   bg-canvas, bg-surface, bg-elevated, border-line, text-fg, text-muted, text-subtle,
+   bg-brand, text-brand, text-danger, … Use tokens, never raw hex, in components.
+   ------------------------------------------------------------------------------------------- */
+@theme {
+  --color-canvas: #07090e;
+  --color-surface: #0d1118;
+  --color-elevated: #141a24;
+  --color-hover: #1a2230;
+  --color-line: #1e2632;
+  --color-line-strong: #2c3747;
+  --color-fg: #e8edf4;
+  --color-muted: #9aa6b6;
+  --color-subtle: #677387;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --color-brand: #14f195;
+  --color-brand-strong: #0fd884;
+  --color-brand-ink: #03130b;
+  --color-accent: #9945ff;
+  --color-danger: #f2557a;
+  --color-warning: #f5b544;
+  --color-info: #4cc2ff;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+
+  --radius-card: 14px;
+
+  --animate-fade-up: fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-fade-in: fade-in 0.3s ease-out both;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-spin-slow: spin 1.2s linear infinite;
+
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes shimmer {
+    from {
+      background-position: -400px 0;
+    }
+    to {
+      background-position: 400px 0;
+    }
+  }
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background: var(--color-canvas);
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  background:
+    radial-gradient(1100px 520px at 85% -10%, rgb(153 69 255 / 0.12), transparent 60%),
+    radial-gradient(900px 480px at 0% 0%, rgb(20 241 149 / 0.08), transparent 55%),
+    var(--color-canvas);
+  background-attachment: fixed;
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: rgb(20 241 149 / 0.3);
+  color: var(--color-fg);
+}
+
+/* Visible keyboard focus everywhere (mouse clicks do not show it). */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
 @layer utilities {
-  .font-mono {
-    font-family: var(--font-geist-mono), ui-monospace, monospace;
-  }
-  
   .transition-base {
-    transition-property: color, background-color, border-color, opacity, transform;
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    transition-duration: 150ms;
+    transition-duration: 160ms;
   }
+  .text-gradient-brand {
+    background: linear-gradient(90deg, var(--color-brand) 0%, #7af5c6 45%, #b98bff 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .skeleton {
+    background: linear-gradient(90deg, var(--color-elevated) 0px, var(--color-hover) 120px, var(--color-elevated) 240px);
+    background-size: 800px 100%;
+    animation: var(--animate-shimmer);
+  }
+  .grid-glow {
+    background-image:
+      linear-gradient(to right, rgb(255 255 255 / 0.035) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(255 255 255 / 0.035) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* --- Solana wallet adapter: match the design system ------------------------------------- */
+.wallet-adapter-button {
+  font-family: var(--font-sans) !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  height: 2.5rem !important;
+  padding: 0 1rem !important;
+  border-radius: 10px !important;
+  line-height: 1 !important;
+}
+.wallet-adapter-button-trigger {
+  background: var(--color-brand) !important;
+  color: var(--color-brand-ink) !important;
+}
+.wallet-adapter-button-trigger:not([disabled]):hover {
+  background: var(--color-brand-strong) !important;
+}
+.wallet-adapter-button-start-icon {
+  width: 18px !important;
+  height: 18px !important;
+  margin-right: 8px !important;
+}
+.wallet-adapter-dropdown-list {
+  background: var(--color-elevated) !important;
+  border: 1px solid var(--color-line) !important;
+  border-radius: 12px !important;
+  font-family: var(--font-sans) !important;
+}
+.wallet-adapter-dropdown-list-item {
+  font-size: 0.875rem !important;
+  border-radius: 8px !important;
+}
+.wallet-adapter-dropdown-list-item:not([disabled]):hover {
+  background: var(--color-hover) !important;
+}
+.wallet-adapter-modal-wrapper {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-line) !important;
+  border-radius: 16px !important;
+  font-family: var(--font-sans) !important;
+}
+.wallet-adapter-modal-title {
+  font-size: 1.25rem !important;
+  font-weight: 600 !important;
+}
+.wallet-adapter-modal-list .wallet-adapter-button:not([disabled]):hover {
+  background: var(--color-hover) !important;
 }

@@ -1,26 +1,19 @@
-/**
- * Client wrapper for Payments History Page
- * Handles wallet-dependent payments history rendering
- */
+"use client";
 
-'use client';
+import dynamic from "next/dynamic";
+import { Container } from "@/components/ui/Container";
+import { LoadingBlock } from "@/components/ui/Spinner";
 
-import dynamic from 'next/dynamic';
-import { Navigation } from '@/components/ui/Navigation';
-
-// Dynamic import to avoid SSR issues with Anchor
-const PaymentsHistory = dynamic(
-  () => import('@/components/policy/PaymentsHistory').then(mod => ({ default: mod.PaymentsHistory })),
-  { ssr: false }
-);
+// Client-only: the component uses the browser wallet and the Anchor client.
+const PaymentsHistory = dynamic(() => import("@/components/policy/PaymentsHistory").then((m) => ({ default: m.PaymentsHistory })), {
+  ssr: false,
+  loading: () => <LoadingBlock label="Loading payments…" />,
+});
 
 export function PaymentsPageClient({ policyId }: { policyId: string }) {
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-b from-gray-950 to-gray-900">
-      <Navigation />
-      <main className="flex-1">
-        <PaymentsHistory policyAddress={policyId} />
-      </main>
-    </div>
+    <Container size="lg">
+      <PaymentsHistory policyAddress={policyId} />
+    </Container>
   );
 }

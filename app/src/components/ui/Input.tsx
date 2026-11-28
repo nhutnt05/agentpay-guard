@@ -1,57 +1,100 @@
-import type { InputHTMLAttributes } from "react";
+import { type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes, useId } from "react";
+import { cn } from "@/lib/ui/cn";
 
-interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
-  error?: string;
-  label?: string;
+export const fieldClasses =
+  "w-full rounded-[10px] border bg-canvas/60 px-3.5 py-2.5 text-sm text-fg placeholder:text-subtle transition-base hover:border-line-strong focus:border-brand/70 focus:bg-canvas focus:outline-none focus:ring-4 focus:ring-brand/10 disabled:cursor-not-allowed disabled:opacity-50";
+
+interface FieldShellProps {
+  id: string;
+  label?: ReactNode;
+  hint?: ReactNode;
+  error?: string | null;
+  /** Element shown on the right of the label (e.g. a "Max" button). */
+  labelAction?: ReactNode;
+  children: ReactNode;
 }
 
-export function Input({ error, label, className = "", id, ...props }: InputProps) {
-  const inputId = id || label?.toLowerCase().replace(/\s+/g, "-");
-
+export function FieldShell({ id, label, hint, error, labelAction, children }: FieldShellProps) {
   return (
-    <div className="flex flex-col gap-1">
-      {label && (
-        <label htmlFor={inputId} className="text-sm font-medium text-zinc-300">
-          {label}
-        </label>
+    <div className="flex flex-col gap-1.5">
+      {(label || labelAction) && (
+        <div className="flex items-center justify-between gap-2">
+          {label && (
+            <label htmlFor={id} className="text-sm font-medium text-fg">
+              {label}
+            </label>
+          )}
+          {labelAction}
+        </div>
       )}
-      <input
-        id={inputId}
-        className={`rounded border bg-zinc-900 px-3 py-2 text-zinc-100 placeholder-zinc-500 transition-base focus:border-[#14F195] focus:outline-none focus:ring-1 focus:ring-[#14F195] disabled:cursor-not-allowed disabled:bg-zinc-950 disabled:text-zinc-600 ${
-          error ? "border-red-500" : "border-zinc-700"
-        } ${className}`}
-        {...props}
-      />
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {children}
+      {error ? (
+        <p id={`${id}-error`} className="text-xs text-danger animate-fade-in" role="alert">
+          {error}
+        </p>
+      ) : (
+        hint && (
+          <p id={`${id}-hint`} className="text-xs text-subtle">
+            {hint}
+          </p>
+        )
+      )}
     </div>
   );
 }
 
-interface TextAreaProps extends InputHTMLAttributes<HTMLTextAreaElement> {
-  error?: string;
-  label?: string;
-  rows?: number;
+interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
+  error?: string | null;
+  label?: ReactNode;
+  hint?: ReactNode;
+  labelAction?: ReactNode;
+  /** Text shown inside the field on the right (e.g. a token symbol). */
+  suffix?: ReactNode;
 }
 
-export function TextArea({ error, label, className = "", id, rows = 4, ...props }: TextAreaProps) {
-  const inputId = id || label?.toLowerCase().replace(/\s+/g, "-");
-
+export function Input({ error, label, hint, labelAction, suffix, className = "", id, ...props }: InputProps) {
+  const autoId = useId();
+  const inputId = id ?? autoId;
+  const describedBy = error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined;
   return (
-    <div className="flex flex-col gap-1">
-      {label && (
-        <label htmlFor={inputId} className="text-sm font-medium text-zinc-300">
-          {label}
-        </label>
-      )}
+    <FieldShell id={inputId} label={label} hint={hint} error={error} labelAction={labelAction}>
+      <div className="relative">
+        <input
+          id={inputId}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy}
+          className={cn(fieldClasses, error ? "border-danger/70" : "border-line", suffix ? "pr-16" : "", className)}
+          {...props}
+        />
+        {suffix && (
+          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-subtle">
+            {suffix}
+          </span>
+        )}
+      </div>
+    </FieldShell>
+  );
+}
+
+interface TextAreaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
+  error?: string | null;
+  label?: ReactNode;
+  hint?: ReactNode;
+}
+
+export function TextArea({ error, label, hint, className = "", id, rows = 4, ...props }: TextAreaProps) {
+  const autoId = useId();
+  const inputId = id ?? autoId;
+  return (
+    <FieldShell id={inputId} label={label} hint={hint} error={error}>
       <textarea
         id={inputId}
         rows={rows}
-        className={`rounded border bg-zinc-900 px-3 py-2 text-zinc-100 placeholder-zinc-500 transition-base focus:border-[#14F195] focus:outline-none focus:ring-1 focus:ring-[#14F195] disabled:cursor-not-allowed disabled:bg-zinc-950 disabled:text-zinc-600 ${
-          error ? "border-red-500" : "border-zinc-700"
-        } ${className}`}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined}
+        className={cn(fieldClasses, "resize-y leading-relaxed", error ? "border-danger/70" : "border-line", className)}
         {...props}
       />
-      {error && <p className="text-sm text-red-400">{error}</p>}
-    </div>
+    </FieldShell>
   );
 }

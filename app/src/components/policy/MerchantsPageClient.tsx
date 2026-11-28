@@ -1,26 +1,19 @@
-/**
- * Client wrapper for Merchants Management Page
- * Handles wallet-dependent merchants management rendering
- */
+"use client";
 
-'use client';
+import dynamic from "next/dynamic";
+import { Container } from "@/components/ui/Container";
+import { LoadingBlock } from "@/components/ui/Spinner";
 
-import dynamic from 'next/dynamic';
-import { Navigation } from '@/components/ui/Navigation';
-
-// Dynamic import to avoid SSR issues with Anchor
-const MerchantsManager = dynamic(
-  () => import('@/components/policy/MerchantsManager').then(mod => ({ default: mod.MerchantsManager })),
-  { ssr: false }
-);
+// Client-only: the component uses the browser wallet and the Anchor client.
+const MerchantsManager = dynamic(() => import("@/components/policy/MerchantsManager").then((m) => ({ default: m.MerchantsManager })), {
+  ssr: false,
+  loading: () => <LoadingBlock label="Loading merchants…" />,
+});
 
 export function MerchantsPageClient({ policyId }: { policyId: string }) {
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-b from-gray-950 to-gray-900">
-      <Navigation />
-      <main className="flex-1">
-        <MerchantsManager policyAddress={policyId} />
-      </main>
-    </div>
+    <Container size="lg">
+      <MerchantsManager policyAddress={policyId} />
+    </Container>
   );
 }

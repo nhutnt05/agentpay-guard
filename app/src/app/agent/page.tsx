@@ -1,23 +1,26 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { AgentPlayground } from "@/components/agent/AgentPlayground";
+import { Badge } from "@/components/ui/Badge";
+import { Container } from "@/components/ui/Container";
+import { PageHeader } from "@/components/ui/SectionHeader";
+import { LoadingBlock } from "@/components/ui/Spinner";
 
-export const metadata: Metadata = { title: "AI Agent Playground — AgentPay Guard" };
+export const metadata: Metadata = { title: "AI Playground" };
 
 // AI Agent Playground (docs/07 §4): content → LLM proposal (untrusted) → prepare (simulate)
 // → submit (agent signs) → live status.
 export default function AgentPage() {
   return (
-    <main className="mx-auto w-full max-w-4xl flex-1 space-y-4 px-4 py-8">
-      <header>
-        <h1 className="text-2xl font-semibold">AI Agent Playground</h1>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          The agent reads content and proposes a payment. Its output is untrusted; the on-chain policy is the final authority.
-        </p>
-      </header>
-      <Suspense fallback={<p className="text-sm text-zinc-500">Loading…</p>}>
+    <Container size="xl">
+      <PageHeader
+        eyebrow={<Badge tone="info">Live on devnet</Badge>}
+        title="AI Playground"
+        description="Let an AI agent read a page and propose a payment. Its output is untrusted — the on-chain policy is the final authority."
+      />
+      <Suspense fallback={<LoadingBlock />}>
         <AgentPlayground />
       </Suspense>
-    </main>
+    </Container>
   );
 }
