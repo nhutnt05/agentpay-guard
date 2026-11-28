@@ -46,7 +46,15 @@ export function useOwnerPolicies(owner: PublicKey | null) {
       const accounts = await program.account.agentPolicy.all([
         { memcmp: { offset: OWNER_OFFSET, bytes: owner.toBase58() } },
       ]);
-      const today = dayIndex(Math.floor(Date.now() / 1000));
+      // docs/11 §5: "today" comes from cluster time, not the browser clock.
+      let nowSeconds = Math.floor(Date.now() / 1000);
+      try {
+        const blockTime = await connection.getBlockTime(await connection.getSlot("confirmed"));
+        if (blockTime !== null) nowSeconds = blockTime;
+      } catch {
+        // RPC could not provide cluster time: fall back to the browser clock.
+      }
+      const today = dayIndex(nowSeconds);
       const rows = await Promise.all(
         accounts.map(async ({ publicKey, account }): Promise<OwnerPolicySummary> => {
           const dailyLimit = BigInt(account.dailyLimit.toString());

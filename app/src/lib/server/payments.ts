@@ -604,8 +604,18 @@ export async function getPaymentStatus(deps: PaymentDeps, signature: string): Pr
       break;
     }
   }
+  if (!payment) {
+    // A successful program transaction without a PaymentExecuted event is not a payment (e.g.
+    // pause_policy, add_merchant). Never report it as a CONFIRMED payment: CONFIRMED requires a
+    // payment whose receipt we can check (docs/11 §6).
+    throw new PaymentServiceError(
+      404,
+      "NOT_A_PAYMENT_TRANSACTION",
+      "transaction succeeded but executed no payment (no PaymentExecuted event)",
+    );
+  }
   const final = st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized";
-  if (final && payment) {
+  if (final) {
     // Same rule as submit: a payment is CONFIRMED only if its receipt account exists.
     const receiptInfo = await deps.rpc.getAccountInfo(new PublicKey(payment.receipt), "confirmed");
     if (!receiptInfo || !receiptInfo.owner.equals(PROGRAM_ID)) {

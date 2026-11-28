@@ -32,14 +32,14 @@ async function paymentExecutedLog(): Promise<string> {
   return "Program data: " + Buffer.concat([Buffer.from(ev.discriminator), body]).toString("base64");
 }
 
-async function status(o: { receiptExists: boolean; now: number }) {
-  const logs = [await paymentExecutedLog()];
+async function status(o: { receiptExists: boolean; now: number; logs?: string[]; err?: unknown }) {
+  const logs = o.logs ?? [await paymentExecutedLog()];
   const rpc = {
     getSignatureStatuses: async () => ({ value: [{ confirmationStatus: "finalized", err: null, slot: 5 }] }),
     getTransaction: async () => ({
       blockTime: EXECUTED_AT,
       transaction: { message: { staticAccountKeys: [agent.publicKey, PROGRAM_ID] } },
-      meta: { err: null, logMessages: logs },
+      meta: { err: o.err ?? null, logMessages: logs },
     }),
     getAccountInfo: async (addr: PublicKey) =>
       o.receiptExists && addr.equals(receipt)
@@ -77,5 +77,26 @@ describe("payment status and closed receipts (F-02)", () => {
     const r = await status({ receiptExists: false, now: receiptClosableAt(EXECUTED_AT) - 1 });
     expect(r.status).toBe("FAILED");
     expect(r.error?.name).toBe("ReceiptMissing");
+  });
+});
+
+describe("CONFIRMED only for real payments (docs/11 §6, §8)", () => {
+  it("successful program tx without PaymentExecuted (e.g. pause_policy) → 404, never CONFIRMED", async () => {
+    await expect(
+      status({ receiptExists: false, now: EXECUTED_AT + 60, logs: ["Program log: Instruction: PausePolicy"] }),
+    ).rejects.toMatchObject({ httpStatus: 404, code: "NOT_A_PAYMENT_TRANSACTION" });
+  });
+
+  it("failed on-chain tx (meta.err) → REJECTED with the mapped reason, never CONFIRMED", async () => {
+    const code = idl.errors.find((e) => e.name === "ExceedsDailyLimit")!.code;
+    const r = await status({
+      receiptExists: false,
+      now: EXECUTED_AT + 60,
+      logs: [],
+      err: { InstructionError: [0, { Custom: code }] },
+    });
+    expect(r.status).toBe("REJECTED");
+    expect(r.error?.reason).toBe("EXCEEDS_DAILY_LIMIT");
+    expect(r.payment).toBeNull();
   });
 });
