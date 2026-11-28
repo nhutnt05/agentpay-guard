@@ -9,9 +9,14 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { SectionHeader } from '@/components/ui/SectionHeader';
+import { Badge } from '@/components/ui/Badge';
+import { short } from '@/components/ui/ExplorerLink';
+import { formatBaseUnits } from '@/lib/solana/amounts';
+import { useOwnerPolicies } from '@/lib/wallet/useOwnerPolicies';
 
 export function PoliciesDashboard() {
   const { publicKey } = useWallet();
+  const { policies, loading, error } = useOwnerPolicies(publicKey);
 
   if (!publicKey) {
     return (
@@ -40,21 +45,58 @@ export function PoliciesDashboard() {
         </Link>
       </div>
 
-      {/* Policy List - TODO: Fetch from getProgramAccounts */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Getting Started</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-gray-400 mb-6">
-            You haven't created any policies yet. Create your first policy to start
-            securing your AI agent payments.
-          </p>
-          <Link href="/policies/new">
-            <Button>Create Your First Policy</Button>
-          </Link>
-        </CardContent>
-      </Card>
+      {/* Policy list, read from chain (owner memcmp on AgentPolicy accounts) */}
+      {loading ? (
+        <p className="text-gray-400">Loading policies…</p>
+      ) : error ? (
+        <Card>
+          <CardContent className="py-4 text-sm text-red-400">{error}</CardContent>
+        </Card>
+      ) : policies.length > 0 ? (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {policies.map((p) => (
+            <Link key={p.address} href={`/policies/${p.address}`}>
+              <Card className="hover:border-[#14F195]">
+                <CardHeader>
+                  <CardTitle className="flex items-start justify-between">
+                    <span className="font-mono text-base">{short(p.address)}</span>
+                    <Badge tone={p.isPaused ? 'warning' : 'success'}>{p.isPaused ? 'Paused' : 'Active'}</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <div className="text-gray-500">Vault</div>
+                    <div className="text-white">
+                      {p.vaultBalance === null ? '—' : formatBaseUnits(p.vaultBalance, p.decimals)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-gray-500">Spent today / limit</div>
+                    <div className="text-white">
+                      {formatBaseUnits(p.effectiveSpentToday, p.decimals)} / {formatBaseUnits(p.dailyLimit, p.decimals)}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Getting Started</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-gray-400 mb-6">
+              You haven&apos;t created any policies yet. Create your first policy to start
+              securing your AI agent payments.
+            </p>
+            <Link href="/policies/new">
+              <Button>Create Your First Policy</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Info Cards */}
       <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">

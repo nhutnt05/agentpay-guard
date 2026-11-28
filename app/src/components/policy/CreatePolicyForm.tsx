@@ -6,7 +6,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/wallet-adapter-react';
 import { useRouter } from 'next/navigation';
 import { PublicKey } from '@solana/web3.js';
 import { Button } from '@/components/ui/Button';
@@ -21,7 +21,6 @@ import { MINT_DECIMALS } from '@/lib/anchor/constants';
 
 export function CreatePolicyForm() {
   const { publicKey } = useWallet();
-  const { connection } = useConnection();
   const router = useRouter();
   const { send, loading, error } = useSendTransaction();
 
@@ -216,7 +215,7 @@ export function CreatePolicyForm() {
             <div className="bg-blue-500/10 border border-blue-500 rounded-lg p-4">
               <p className="text-blue-400 text-sm">
                 💡 <strong>Note:</strong> This transaction will create a policy account
-                and a vault ATA on-chain. You'll need tokens for transaction fees.
+                and a vault ATA on-chain. You&apos;ll need tokens for transaction fees.
               </p>
             </div>
           </form>

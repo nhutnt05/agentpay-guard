@@ -13,8 +13,7 @@ import { Input } from "@/components/ui/Input";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { StatCard } from "@/components/ui/StatCard";
 import { createApiClient, type AnyData } from "@/lib/client/api";
-import { getProgram } from "@/lib/anchor/program";
-import { PROGRAM_ID } from "@/lib/anchor/constants";
+import { getProgram, readOnlyWallet } from "@/lib/anchor/program";
 import { formatBaseUnits, parseDecimalAmount } from "@/lib/solana/amounts";
 import { useSendTransaction } from "@/lib/wallet/useSendTransaction";
 import {
@@ -77,6 +76,8 @@ export function PolicyDetailsContent({ policyId }: PolicyDetailsContentProps) {
   }
 
   useEffect(() => {
+    // Fetch on mount / policy change; state is set after the await.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadPolicy();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [policyId]);
@@ -120,7 +121,7 @@ export function PolicyDetailsContent({ policyId }: PolicyDetailsContentProps) {
 
     try {
       const policyIdBytes = Buffer.from(policy.policyIdHex, "hex");
-      const program = getProgram(connection, { publicKey } as any);
+      const program = getProgram(connection, readOnlyWallet(publicKey));
 
       const tx = await buildPausePolicy({
         program,
@@ -139,7 +140,7 @@ export function PolicyDetailsContent({ policyId }: PolicyDetailsContentProps) {
 
     try {
       const policyIdBytes = Buffer.from(policy.policyIdHex, "hex");
-      const program = getProgram(connection, { publicKey } as any);
+      const program = getProgram(connection, readOnlyWallet(publicKey));
 
       const tx = await buildResumePolicy({
         program,
@@ -160,7 +161,7 @@ export function PolicyDetailsContent({ policyId }: PolicyDetailsContentProps) {
     try {
       const policyIdBytes = Buffer.from(policy.policyIdHex, "hex");
       const amount = parseDecimalAmount(withdrawAmount, decimals);
-      const program = getProgram(connection, { publicKey } as any);
+      const program = getProgram(connection, readOnlyWallet(publicKey));
 
       const tx = await buildWithdraw({
         program,
@@ -186,7 +187,7 @@ export function PolicyDetailsContent({ policyId }: PolicyDetailsContentProps) {
 
     try {
       const policyIdBytes = Buffer.from(policy.policyIdHex, "hex");
-      const program = getProgram(connection, { publicKey } as any);
+      const program = getProgram(connection, readOnlyWallet(publicKey));
 
       const tx = await buildUpdatePolicy({
         program,

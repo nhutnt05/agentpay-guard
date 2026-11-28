@@ -444,7 +444,9 @@
           "name": "merchant",
           "docs": [
             "Bound by the `merchant_allowlist` PDA seeds + `has_one = merchant`, and by the",
-            "merchant ATA check below."
+            "merchant ATA check below. Must not be the current agent: `add_merchant` refuses the",
+            "agent, but `update_policy(new_agent)` could later make an allowlisted merchant the",
+            "agent, which would let the agent pay itself (threat T-29)."
           ],
           "relations": [
             "merchant_allowlist"
@@ -2062,7 +2064,8 @@
     {
       "name": "PaymentReceipt",
       "docs": [
-        "Proof that a canonical payment request executed. Never closed (docs/03 §6).",
+        "Proof that a canonical payment request executed (docs/03 §6). Closable only via",
+        "`close_receipt` after expiry + grace (F-02), when replay already fails with `RequestExpired`.",
         "Size: 8 + 177 = 185 bytes."
       ],
       "type": {

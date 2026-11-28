@@ -3,50 +3,16 @@
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { ExplorerLink, short } from "@/components/ui/ExplorerLink";
-import { StatCard } from "@/components/ui/StatCard";
-import { createApiClient, type AnyData } from "@/lib/client/api";
+import { short } from "@/components/ui/ExplorerLink";
 import { formatBaseUnits } from "@/lib/solana/amounts";
-
-const api = createApiClient();
+import { type OwnerPolicySummary, useOwnerPolicies } from "@/lib/wallet/useOwnerPolicies";
 
 export function DashboardContent() {
   const { publicKey, connected } = useWallet();
-  const [policies, setPolicies] = useState<AnyData[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!connected || !publicKey) {
-      setPolicies([]);
-      return;
-    }
-
-    async function loadPolicies() {
-      setLoading(true);
-      setError(null);
-      try {
-        // For now, we don't have an API endpoint that lists all policies for an owner
-        // In a real implementation, we'd either:
-        // 1. Use getProgramAccounts with memcmp filter on the owner
-        // 2. Have the user paste policy addresses
-        // 3. Store policy addresses in localStorage
-        
-        // Placeholder: show message to paste policy address
-        setPolicies([]);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load policies");
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    void loadPolicies();
-  }, [connected, publicKey]);
+  const { policies, loading, error } = useOwnerPolicies(connected ? publicKey : null);
 
   if (!connected) {
     return (
@@ -123,9 +89,10 @@ export function DashboardContent() {
   );
 }
 
-function PolicyCard({ policy }: { policy: AnyData }) {
-  const decimals = policy.decimals ?? 6;
-  
+function PolicyCard({ policy }: { policy: OwnerPolicySummary }) {
+  const { decimals, dailyLimit, effectiveSpentToday } = policy;
+  const pct = dailyLimit > 0n ? Number((effectiveSpentToday * 100n) / dailyLimit) : 0;
+
   return (
     <Link href={`/dashboard/policy/${policy.address}`}>
       <Card className="transition-base hover:border-[#14F195]">
@@ -142,35 +109,26 @@ function PolicyCard({ policy }: { policy: AnyData }) {
             <div>
               <div className="text-zinc-500">Vault Balance</div>
               <div className="font-medium text-zinc-100">
-                {formatBaseUnits(BigInt(policy.vaultBalance ?? "0"), decimals)}
+                {policy.vaultBalance === null ? "—" : formatBaseUnits(policy.vaultBalance, decimals)}
               </div>
             </div>
             <div>
               <div className="text-zinc-500">Daily Limit</div>
-              <div className="font-medium text-zinc-100">
-                {formatBaseUnits(BigInt(policy.dailyLimit ?? "0"), decimals)}
-              </div>
+              <div className="font-medium text-zinc-100">{formatBaseUnits(dailyLimit, decimals)}</div>
             </div>
           </div>
-          
-          {policy.derived?.effectiveSpentToday && (
-            <div>
-              <div className="mb-1 flex justify-between text-xs text-zinc-500">
-                <span>Spent Today</span>
-                <span>
-                  {formatBaseUnits(BigInt(policy.derived.effectiveSpentToday), decimals)} / {formatBaseUnits(BigInt(policy.dailyLimit), decimals)}
-                </span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
-                <div 
-                  className="h-full bg-[#14F195] transition-all"
-                  style={{ 
-                    width: `${Math.min(100, (Number(policy.derived.effectiveSpentToday) / Number(policy.dailyLimit)) * 100)}%` 
-                  }}
-                />
-              </div>
+
+          <div>
+            <div className="mb-1 flex justify-between text-xs text-zinc-500">
+              <span>Spent Today</span>
+              <span>
+                {formatBaseUnits(effectiveSpentToday, decimals)} / {formatBaseUnits(dailyLimit, decimals)}
+              </span>
             </div>
-          )}
+            <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
+              <div className="h-full bg-[#14F195] transition-all" style={{ width: `${Math.min(100, pct)}%` }} />
+            </div>
+          </div>
         </CardContent>
       </Card>
     </Link>

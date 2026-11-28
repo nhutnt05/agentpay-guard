@@ -5,7 +5,7 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
 import Link from 'next/link';
@@ -16,8 +16,8 @@ import { SectionHeader } from '@/components/ui/SectionHeader';
 import { Badge } from '@/components/ui/Badge';
 import { ExplorerLink } from '@/components/ui/ExplorerLink';
 import { formatBaseUnits, parseDecimalAmount } from '@/lib/solana/amounts';
-import { MINT_DECIMALS, MINT } from '@/lib/anchor/constants';
-import { vaultAddress } from '@/lib/anchor/pda';
+import { MINT_DECIMALS } from '@/lib/anchor/constants';
+import { getReadonlyProgram } from '@/lib/anchor/program';
 import { useSendTransaction } from '@/lib/wallet/useSendTransaction';
 import {
   pausePolicyIx,
@@ -25,53 +25,6 @@ import {
   updateLimitsIx,
   withdrawVaultIx,
 } from '@/lib/wallet/transactions';
-
-interface PolicyDetailsProps {
-  policyAddress: string;
-}
-
-interface PolicyData {
-  owner: string;
-  paused: boolean;
-  spendingLimit: bigint;
-  dailyLimit: bigint;
-  vaultBalance: bigint;
-  totalSpent: bigint;
-  vault: string;
-}
-
-// TODO: Implement proper Borsh deserialization for AgentPolicy account
-// For now, using placeholder - will deserialize account data in next iteration
-function deserializePolicyAccount(data: Buffer): any {
-  // Placeholder - need proper Borsh deserialization based on IDL
-  // Account structure from IDL:
-  // - owner: Pubkey (32 bytes)
-  // - agent: Pubkey (32 bytes)  
-  // - is_paused: bool (1 byte)
-  // - max_per_tx: u64 (8 bytes)
-  // - daily_limit: u64 (8 bytes)
-  // - spent_today: u64 (8 bytes)
-  // - last_reset_slot: u64 (8 bytes)
-  // - allowlist_count: u16 (2 bytes)
-  // - policy_id: [u8; 32] (32 bytes)
-  
-  // Anchor discriminator is first 8 bytes
-  const owner = new PublicKey(data.slice(8, 40));
-  const agent = new PublicKey(data.slice(40, 72));
-  const isPaused = data[72] === 1;
-  const maxPerTx = data.readBigUInt64LE(73);
-  const dailyLimit = data.readBigUInt64LE(81);
-  const spentToday = data.readBigUInt64LE(89);
-  
-  return {
-    owner,
-    agent,
-    isPaused,
-    maxPerTx,
-    dailyLimit,
-    spentToday,
-  };
-}
 
 interface PolicyDetailsProps {
   policyAddress: string;
@@ -102,51 +55,51 @@ export function PolicyDetails({ policyAddress }: PolicyDetailsProps) {
   const [newSpendingLimit, setNewSpendingLimit] = useState('');
   const [newDailyLimit, setNewDailyLimit] = useState('');
 
-  useEffect(() => {
-    loadPolicy();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [policyAddress]);
-
-  const loadPolicy = async () => {
+  // Decode with the IDL coder (discriminator + exact `AgentPolicy` layout). The earlier
+  // hand-written decoder used an outdated layout and showed wrong pause state and limits.
+  const loadPolicy = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
       const policyPubkey = new PublicKey(policyAddress);
-
-      // Fetch policy account manually
-      const accountInfo = await connection.getAccountInfo(policyPubkey);
-      if (!accountInfo) {
+      const program = getReadonlyProgram(connection, policyPubkey);
+      const account = await program.account.agentPolicy.fetchNullable(policyPubkey);
+      if (!account) {
         throw new Error('Policy account not found');
       }
 
-      const policyAccount = deserializePolicyAccount(accountInfo.data);
-
-      // Fetch vault balance
-      const vaultPDA = vaultAddress(policyPubkey, MINT);
-      const vaultInfo = await connection.getTokenAccountBalance(vaultPDA);
-      const vaultBalance = BigInt(vaultInfo.value.amount);
+      // The vault address is stored in the policy (works for any mint / token program).
+      const vaultInfo = await connection.getTokenAccountBalance(account.vault);
+      const maxPerTx = BigInt(account.maxPerTx.toString());
+      const dailyLimit = BigInt(account.dailyLimit.toString());
 
       setPolicy({
-        owner: policyAccount.owner.toBase58(),
-        paused: policyAccount.isPaused,
-        spendingLimit: policyAccount.maxPerTx,
-        dailyLimit: policyAccount.dailyLimit,
-        vaultBalance,
-        totalSpent: policyAccount.spentToday,
-        vault: vaultPDA.toBase58(),
+        owner: account.owner.toBase58(),
+        paused: account.isPaused,
+        spendingLimit: maxPerTx,
+        dailyLimit,
+        vaultBalance: BigInt(vaultInfo.value.amount),
+        totalSpent: BigInt(account.spentToday.toString()),
+        vault: account.vault.toBase58(),
       });
 
       // Set default form values
-      setNewSpendingLimit(formatBaseUnits(policyAccount.maxPerTx, MINT_DECIMALS));
-      setNewDailyLimit(formatBaseUnits(policyAccount.dailyLimit, MINT_DECIMALS));
+      setNewSpendingLimit(formatBaseUnits(maxPerTx, MINT_DECIMALS));
+      setNewDailyLimit(formatBaseUnits(dailyLimit, MINT_DECIMALS));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load policy';
       setError(message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [connection, policyAddress]);
+
+  useEffect(() => {
+    // Data fetch on mount / policy change; state is set after the await, not synchronously.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadPolicy();
+  }, [loadPolicy]);
 
   const handlePause = async () => {
     if (!publicKey || !policy) return;

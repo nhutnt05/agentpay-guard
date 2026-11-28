@@ -25,7 +25,7 @@ export default function Home() {
             </span>
           </h1>
           <p className="mx-auto max-w-2xl text-lg text-zinc-400">
-            An on-chain payment firewall for AI agents on Solana. AI decides what to pay. The on-chain policy decides whether it's allowed.
+            An on-chain payment firewall for AI agents on Solana. AI decides what to pay. The on-chain policy decides whether it&apos;s allowed.
           </p>
         </div>
 

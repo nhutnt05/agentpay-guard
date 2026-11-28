@@ -6,7 +6,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
@@ -22,7 +22,6 @@ interface MerchantsManagerProps {
 
 export function MerchantsManager({ policyAddress }: MerchantsManagerProps) {
   const { publicKey } = useWallet();
-  const { connection } = useConnection();
   const { send, loading, error } = useSendTransaction();
 
   const [merchantAddress, setMerchantAddress] = useState('');
