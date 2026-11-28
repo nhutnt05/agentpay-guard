@@ -1,73 +1,83 @@
 /**
- * Hook for sending transactions with wallet
- * Handles transaction signing and confirmation
+ * Hook for sending owner transactions with the connected wallet (sign, send, confirm).
+ *
+ * Merge of `main` and `frontend`: `sendTransaction(tx)` (dashboard) and `send(instruction)`
+ * (policy pages) share one state: `loading`, `error`, `signature`, `reset`.
  */
 
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import {
-  Transaction,
-  TransactionInstruction,
-  TransactionSignature,
-} from '@solana/web3.js';
-import { useState } from 'react';
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { Transaction, type TransactionInstruction, type TransactionSignature } from "@solana/web3.js";
+import { useState } from "react";
 
-export interface SendTransactionResult {
-  signature: TransactionSignature;
-  confirmed: boolean;
+export interface SendTransactionState {
+  loading: boolean;
+  error: string | null;
+  signature: TransactionSignature | null;
 }
 
-export function useSendTransaction() {
-  const { connection } = useConnection();
-  const { publicKey, sendTransaction } = useWallet();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+export interface SendTransactionResult extends SendTransactionState {
+  /** Signs and sends `tx`; resolves to the signature once confirmed, or null on error. */
+  sendTransaction: (tx: Transaction) => Promise<TransactionSignature | null>;
+  /** Policy-pages variant: one instruction → `{ signature, confirmed }` or null on error. */
+  send: (instruction: TransactionInstruction) => Promise<{ signature: TransactionSignature; confirmed: boolean } | null>;
+  reset: () => void;
+}
 
-  const send = async (
-    instruction: TransactionInstruction
-  ): Promise<SendTransactionResult | null> => {
+export function useSendTransaction(): SendTransactionResult {
+  const { connection } = useConnection();
+  const { publicKey, sendTransaction: walletSendTransaction } = useWallet();
+  const [state, setState] = useState<SendTransactionState>({
+    loading: false,
+    error: null,
+    signature: null,
+  });
+
+  const sendTransaction = async (tx: Transaction): Promise<TransactionSignature | null> => {
     if (!publicKey) {
-      setError('Wallet not connected');
+      setState({ loading: false, error: "Wallet not connected", signature: null });
       return null;
     }
 
-    setLoading(true);
-    setError(null);
+    setState({ loading: true, error: null, signature: null });
 
     try {
-      const transaction = new Transaction().add(instruction);
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = publicKey;
 
-      // Get latest blockhash
-      const { blockhash, lastValidBlockHeight } =
-        await connection.getLatestBlockhash('confirmed');
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = publicKey;
+      // The wallet signs; the app never sees the owner key.
+      const signature = await walletSendTransaction(tx, connection);
 
-      // Send transaction (wallet will sign)
-      const signature = await sendTransaction(transaction, connection);
-
-      // Wait for confirmation
       const confirmation = await connection.confirmTransaction(
-        {
-          signature,
-          blockhash,
-          lastValidBlockHeight,
-        },
-        'confirmed'
+        { signature, blockhash, lastValidBlockHeight },
+        "confirmed",
       );
-
       if (confirmation.value.err) {
         throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
       }
 
-      setLoading(false);
-      return { signature, confirmed: true };
+      setState({ loading: false, error: null, signature });
+      return signature;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      setError(message);
-      setLoading(false);
+      const errorMessage = err instanceof Error ? err.message : "Transaction failed";
+      setState({ loading: false, error: errorMessage, signature: null });
       return null;
     }
   };
 
-  return { send, loading, error };
+  const send = async (instruction: TransactionInstruction) => {
+    const signature = await sendTransaction(new Transaction().add(instruction));
+    return signature ? { signature, confirmed: true } : null;
+  };
+
+  const reset = () => {
+    setState({ loading: false, error: null, signature: null });
+  };
+
+  return {
+    ...state,
+    sendTransaction,
+    send,
+    reset,
+  };
 }

@@ -14,7 +14,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { useSendTransaction } from '@/lib/wallet/useSendTransaction';
-import { buildAddMerchant, buildRemoveMerchant } from '@/lib/wallet/transactions';
+import { addMerchantIx, removeMerchantIx } from '@/lib/wallet/transactions';
 
 interface MerchantsManagerProps {
   policyAddress: string;
@@ -34,7 +34,7 @@ export function MerchantsManager({ policyAddress }: MerchantsManagerProps) {
     try {
       const merchantPubkey = new PublicKey(merchantAddress);
 
-      const instruction = buildAddMerchant(
+      const instruction = await addMerchantIx(
         new PublicKey(policyAddress),
         publicKey,
         merchantPubkey
@@ -56,7 +56,7 @@ export function MerchantsManager({ policyAddress }: MerchantsManagerProps) {
     try {
       const merchantPubkey = new PublicKey(merchantAddress);
 
-      const instruction = buildRemoveMerchant(
+      const instruction = await removeMerchantIx(
         new PublicKey(policyAddress),
         publicKey,
         merchantPubkey

@@ -1,226 +1,265 @@
 /**
- * Client-side transaction builders for wallet operations
- * Manual instruction building to avoid @anchor-lang/core Node.js dependencies
- * Uses raw instruction encoding per IDL spec
+ * Transaction builders for owner actions, signed by the owner's browser wallet.
+ *
+ * Merge of `frontend` (policy pages) and `main` (dashboard): every instruction is built with the
+ * Anchor client from the synced IDL (`accountsStrict`), so account order, discriminators and
+ * argument encoding always match the program. The earlier hand-encoded builders sent wrong
+ * account orders and non-existent instructions (`update_limits`, `withdraw_vault`).
+ *
+ * - Object-parameter builders (`buildPausePolicy({ program, ... })`, …) return a Transaction
+ *   and are used by the dashboard (`PolicyDetailsContent`).
+ * - `buildInitializePolicy` and the `*Ix` helpers take positional arguments and return one
+ *   instruction for the policy pages (`CreatePolicyForm`, `MerchantsManager`, `PolicyDetails`).
  */
 
-import { BN } from 'bn.js';
-import { sha256 } from 'js-sha256';
+import { BN, type Program } from "@anchor-lang/core";
+import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import {
-  PublicKey,
-  TransactionInstruction,
-  SystemProgram,
-} from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
-import { policyPda, vaultAddress, merchantAllowlistPda } from '@/lib/anchor/pda';
-import { MINT, PROGRAM_ID } from '@/lib/anchor/constants';
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
+import { Connection, PublicKey, SystemProgram, Transaction, type TransactionInstruction } from "@solana/web3.js";
+import { MINT } from "@/lib/anchor/constants";
+import type { AgentPaymentFirewall } from "@/lib/anchor/idl/agent_payment_firewall";
+import { merchantAllowlistPda, policyPda, vaultAddress } from "@/lib/anchor/pda";
+import { getReadonlyProgram } from "@/lib/anchor/program";
+import { getPublicRpcUrl } from "@/lib/solana/connection";
 
-/**
- * Encode instruction discriminator (first 8 bytes of method name SHA256)
- * Anchor uses: sha256("global:<method_name>").slice(0, 8)
- */
-function encodeDiscriminator(methodName: string): Buffer {
-  const hash = sha256.array(`global:${methodName}`);
-  return Buffer.from(hash.slice(0, 8));
+// ---------------------------------------------------------------- dashboard (object params)
+
+export interface BuildPausePolicyParams {
+  program: Program<AgentPaymentFirewall>;
+  owner: PublicKey;
+  policyId: Uint8Array;
+}
+
+export async function buildPausePolicy({ program, owner, policyId }: BuildPausePolicyParams): Promise<Transaction> {
+  const [policy] = policyPda(owner, policyId);
+  const ix = await program.methods.pausePolicy().accountsStrict({ owner, policy }).instruction();
+  return new Transaction().add(ix);
+}
+
+export interface BuildResumePolicyParams {
+  program: Program<AgentPaymentFirewall>;
+  owner: PublicKey;
+  policyId: Uint8Array;
+}
+
+export async function buildResumePolicy({ program, owner, policyId }: BuildResumePolicyParams): Promise<Transaction> {
+  const [policy] = policyPda(owner, policyId);
+  const ix = await program.methods.resumePolicy().accountsStrict({ owner, policy }).instruction();
+  return new Transaction().add(ix);
+}
+
+export interface BuildUpdatePolicyParams {
+  program: Program<AgentPaymentFirewall>;
+  owner: PublicKey;
+  policyId: Uint8Array;
+  newAgent?: PublicKey;
+  newMaxPerTx?: bigint;
+  newDailyLimit?: bigint;
+}
+
+export async function buildUpdatePolicy({
+  program,
+  owner,
+  policyId,
+  newAgent,
+  newMaxPerTx,
+  newDailyLimit,
+}: BuildUpdatePolicyParams): Promise<Transaction> {
+  const [policy] = policyPda(owner, policyId);
+  // Program signature: update_policy(new_max_per_tx, new_daily_limit, new_agent); null = None.
+  const ix = await program.methods
+    .updatePolicy(
+      newMaxPerTx !== undefined ? new BN(newMaxPerTx.toString()) : null,
+      newDailyLimit !== undefined ? new BN(newDailyLimit.toString()) : null,
+      newAgent ?? null,
+    )
+    .accountsStrict({ owner, policy })
+    .instruction();
+  return new Transaction().add(ix);
+}
+
+export interface BuildWithdrawParams {
+  program: Program<AgentPaymentFirewall>;
+  owner: PublicKey;
+  policyId: Uint8Array;
+  mint: PublicKey;
+  amount: bigint;
+}
+
+export async function buildWithdraw({ program, owner, policyId, mint, amount }: BuildWithdrawParams): Promise<Transaction> {
+  const [policy] = policyPda(owner, policyId);
+  const ix = await withdrawInstruction(program, owner, policy, mint, amount);
+  return new Transaction().add(ix);
+}
+
+export interface BuildAddMerchantParams {
+  program: Program<AgentPaymentFirewall>;
+  owner: PublicKey;
+  policyId: Uint8Array;
+  policyAddress: PublicKey;
+  merchant: PublicKey;
+}
+
+export async function buildAddMerchant({ program, owner, policyAddress, merchant }: BuildAddMerchantParams): Promise<Transaction> {
+  return new Transaction().add(await addMerchantInstruction(program, owner, policyAddress, merchant));
+}
+
+export interface BuildRemoveMerchantParams {
+  program: Program<AgentPaymentFirewall>;
+  owner: PublicKey;
+  policyAddress: PublicKey;
+  merchant: PublicKey;
+}
+
+export async function buildRemoveMerchant({
+  program,
+  owner,
+  policyAddress,
+  merchant,
+}: BuildRemoveMerchantParams): Promise<Transaction> {
+  return new Transaction().add(await removeMerchantInstruction(program, owner, policyAddress, merchant));
+}
+
+// ---------------------------------------------------------------- shared instruction builders
+
+async function withdrawInstruction(
+  program: Program<AgentPaymentFirewall>,
+  owner: PublicKey,
+  policy: PublicKey,
+  mint: PublicKey,
+  amount: bigint,
+): Promise<TransactionInstruction> {
+  return program.methods
+    .withdraw(new BN(amount.toString()))
+    .accountsStrict({
+      owner,
+      policy,
+      mint,
+      vault: vaultAddress(policy, mint),
+      destination: getAssociatedTokenAddressSync(mint, owner, false, TOKEN_PROGRAM_ID),
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .instruction();
+}
+
+async function addMerchantInstruction(
+  program: Program<AgentPaymentFirewall>,
+  owner: PublicKey,
+  policy: PublicKey,
+  merchant: PublicKey,
+): Promise<TransactionInstruction> {
+  return program.methods
+    .addMerchant()
+    .accountsStrict({
+      owner,
+      policy,
+      merchant,
+      merchantAllowlist: merchantAllowlistPda(policy, merchant)[0],
+      systemProgram: SystemProgram.programId,
+    })
+    .instruction();
+}
+
+async function removeMerchantInstruction(
+  program: Program<AgentPaymentFirewall>,
+  owner: PublicKey,
+  policy: PublicKey,
+  merchant: PublicKey,
+): Promise<TransactionInstruction> {
+  return program.methods
+    .removeMerchant()
+    .accountsStrict({ owner, policy, merchant, merchantAllowlist: merchantAllowlistPda(policy, merchant)[0] })
+    .instruction();
+}
+
+// ---------------------------------------------------------------- policy pages (positional)
+
+/** Instruction-building program for the policy pages (no RPC calls are made, nothing signs). */
+function pageProgram(owner: PublicKey): Program<AgentPaymentFirewall> {
+  return getReadonlyProgram(new Connection(getPublicRpcUrl()), owner);
 }
 
 /**
- * Build initialize_policy instruction
+ * initialize_policy for the configured demo mint (classic SPL Token).
+ * `acceptIssuerPowers` (F-05) only matters for Token-2022 mints with a permanent delegate.
  */
-export function buildInitializePolicy(
+export async function buildInitializePolicy(
   owner: PublicKey,
   policyId: Uint8Array,
   agent: PublicKey,
   maxPerTx: bigint,
-  dailyLimit: bigint
-): TransactionInstruction {
-  const [policyPDA] = policyPda(owner, policyId);
-  const vaultATA = vaultAddress(policyPDA, MINT);
-
-  // Encode instruction data: discriminator + policy_id + agent + max_per_tx + daily_limit
-  // + accept_issuer_powers (bool, F-05; false = refuse Token-2022 mints with a permanent delegate)
-  const discriminator = encodeDiscriminator('initialize_policy');
-  const data = Buffer.alloc(8 + 32 + 32 + 8 + 8 + 1);
-
-  discriminator.copy(data, 0);
-  Buffer.from(policyId).copy(data, 8);
-  agent.toBuffer().copy(data, 40);
-  new BN(maxPerTx.toString()).toArrayLike(Buffer, 'le', 8).copy(data, 72);
-  new BN(dailyLimit.toString()).toArrayLike(Buffer, 'le', 8).copy(data, 80);
-  data.writeUInt8(0, 88);
-
-  // Account order must match the program's `InitializePolicy` struct exactly.
-  return new TransactionInstruction({
-    keys: [
-      { pubkey: owner, isSigner: true, isWritable: true },
-      { pubkey: policyPDA, isSigner: false, isWritable: true },
-      { pubkey: MINT, isSigner: false, isWritable: false },
-      { pubkey: vaultATA, isSigner: false, isWritable: true },
-      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-      { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-    ],
-    programId: PROGRAM_ID,
-    data,
-  });
+  dailyLimit: bigint,
+  acceptIssuerPowers = false,
+): Promise<TransactionInstruction> {
+  const [policy] = policyPda(owner, policyId);
+  return pageProgram(owner)
+    .methods.initializePolicy(
+      Array.from(policyId),
+      agent,
+      new BN(maxPerTx.toString()),
+      new BN(dailyLimit.toString()),
+      acceptIssuerPowers,
+    )
+    .accountsStrict({
+      owner,
+      policy,
+      mint: MINT,
+      vault: vaultAddress(policy, MINT),
+      tokenProgram: TOKEN_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+    })
+    .instruction();
 }
 
-/**
- * Build pause_policy instruction
- */
-export function buildPausePolicy(
-  policyAddress: PublicKey,
-  owner: PublicKey
-): TransactionInstruction {
-  const discriminator = encodeDiscriminator('pause_policy');
-
-  return new TransactionInstruction({
-    keys: [
-      { pubkey: policyAddress, isSigner: false, isWritable: true },
-      { pubkey: owner, isSigner: true, isWritable: false },
-    ],
-    programId: PROGRAM_ID,
-    data: discriminator,
-  });
+export async function pausePolicyIx(policyAddress: PublicKey, owner: PublicKey): Promise<TransactionInstruction> {
+  return pageProgram(owner).methods.pausePolicy().accountsStrict({ owner, policy: policyAddress }).instruction();
 }
 
-/**
- * Build resume_policy instruction
- */
-export function buildResumePolicy(
-  policyAddress: PublicKey,
-  owner: PublicKey
-): TransactionInstruction {
-  const discriminator = encodeDiscriminator('resume_policy');
-
-  return new TransactionInstruction({
-    keys: [
-      { pubkey: policyAddress, isSigner: false, isWritable: true },
-      { pubkey: owner, isSigner: true, isWritable: false },
-    ],
-    programId: PROGRAM_ID,
-    data: discriminator,
-  });
+export async function resumePolicyIx(policyAddress: PublicKey, owner: PublicKey): Promise<TransactionInstruction> {
+  return pageProgram(owner).methods.resumePolicy().accountsStrict({ owner, policy: policyAddress }).instruction();
 }
 
-/**
- * Build update_limits instruction
- */
-export function buildUpdateLimits(
+/** update_policy with only limits (null = unchanged). */
+export async function updateLimitsIx(
   policyAddress: PublicKey,
   owner: PublicKey,
   maxPerTx: bigint | null,
-  dailyLimit: bigint | null
-): TransactionInstruction {
-  const discriminator = encodeDiscriminator('update_limits');
-  
-  // Encode: discriminator + Option<u64> maxPerTx + Option<u64> dailyLimit
-  // Option encoding: 0 (None) or 1 (Some) followed by value
-  const data = Buffer.alloc(8 + 1 + 8 + 1 + 8);
-  discriminator.copy(data, 0);
-  
-  if (maxPerTx !== null) {
-    data.writeUInt8(1, 8);
-    new BN(maxPerTx.toString()).toArrayLike(Buffer, 'le', 8).copy(data, 9);
-  } else {
-    data.writeUInt8(0, 8);
-  }
-  
-  if (dailyLimit !== null) {
-    data.writeUInt8(1, 17);
-    new BN(dailyLimit.toString()).toArrayLike(Buffer, 'le', 8).copy(data, 18);
-  } else {
-    data.writeUInt8(0, 17);
-  }
-
-  return new TransactionInstruction({
-    keys: [
-      { pubkey: policyAddress, isSigner: false, isWritable: true },
-      { pubkey: owner, isSigner: true, isWritable: false },
-    ],
-    programId: PROGRAM_ID,
-    data,
-  });
+  dailyLimit: bigint | null,
+): Promise<TransactionInstruction> {
+  return pageProgram(owner)
+    .methods.updatePolicy(
+      maxPerTx === null ? null : new BN(maxPerTx.toString()),
+      dailyLimit === null ? null : new BN(dailyLimit.toString()),
+      null,
+    )
+    .accountsStrict({ owner, policy: policyAddress })
+    .instruction();
 }
 
-/**
- * Build withdraw_vault instruction
- */
-export function buildWithdrawVault(
+/** withdraw from the vault to the owner's ATA of the configured mint. */
+export async function withdrawVaultIx(
   policyAddress: PublicKey,
   owner: PublicKey,
-  amount: bigint
-): TransactionInstruction {
-  const vaultATA = vaultAddress(policyAddress, MINT);
-  const ownerATA = vaultAddress(owner, MINT);
-  
-  const discriminator = encodeDiscriminator('withdraw_vault');
-  const data = Buffer.alloc(8 + 8);
-  discriminator.copy(data, 0);
-  new BN(amount.toString()).toArrayLike(Buffer, 'le', 8).copy(data, 8);
-
-  return new TransactionInstruction({
-    keys: [
-      { pubkey: policyAddress, isSigner: false, isWritable: false },
-      { pubkey: vaultATA, isSigner: false, isWritable: true },
-      { pubkey: ownerATA, isSigner: false, isWritable: true },
-      { pubkey: owner, isSigner: true, isWritable: false },
-      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-    ],
-    programId: PROGRAM_ID,
-    data,
-  });
+  amount: bigint,
+): Promise<TransactionInstruction> {
+  return withdrawInstruction(pageProgram(owner), owner, policyAddress, MINT, amount);
 }
 
-/**
- * Build add_merchant instruction
- */
-export function buildAddMerchant(
+export async function addMerchantIx(
   policyAddress: PublicKey,
   owner: PublicKey,
-  merchant: PublicKey
-): TransactionInstruction {
-  const [merchantAllowlist] = merchantAllowlistPda(policyAddress, merchant);
-  
-  const discriminator = encodeDiscriminator('add_merchant');
-  const data = Buffer.alloc(8 + 32);
-  discriminator.copy(data, 0);
-  merchant.toBuffer().copy(data, 8);
-
-  return new TransactionInstruction({
-    keys: [
-      { pubkey: policyAddress, isSigner: false, isWritable: false },
-      { pubkey: merchantAllowlist, isSigner: false, isWritable: true },
-      { pubkey: owner, isSigner: true, isWritable: true },
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-    ],
-    programId: PROGRAM_ID,
-    data,
-  });
+  merchant: PublicKey,
+): Promise<TransactionInstruction> {
+  return addMerchantInstruction(pageProgram(owner), owner, policyAddress, merchant);
 }
 
-/**
- * Build remove_merchant instruction
- */
-export function buildRemoveMerchant(
+export async function removeMerchantIx(
   policyAddress: PublicKey,
   owner: PublicKey,
-  merchant: PublicKey
-): TransactionInstruction {
-  const [merchantAllowlist] = merchantAllowlistPda(policyAddress, merchant);
-  
-  const discriminator = encodeDiscriminator('remove_merchant');
-  const data = Buffer.alloc(8 + 32);
-  discriminator.copy(data, 0);
-  merchant.toBuffer().copy(data, 8);
-
-  return new TransactionInstruction({
-    keys: [
-      { pubkey: merchantAllowlist, isSigner: false, isWritable: true },
-      { pubkey: owner, isSigner: true, isWritable: true },
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-    ],
-    programId: PROGRAM_ID,
-    data,
-  });
+  merchant: PublicKey,
+): Promise<TransactionInstruction> {
+  return removeMerchantInstruction(pageProgram(owner), owner, policyAddress, merchant);
 }

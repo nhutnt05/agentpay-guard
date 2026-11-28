@@ -20,10 +20,10 @@ import { MINT_DECIMALS, MINT } from '@/lib/anchor/constants';
 import { vaultAddress } from '@/lib/anchor/pda';
 import { useSendTransaction } from '@/lib/wallet/useSendTransaction';
 import {
-  buildPausePolicy,
-  buildResumePolicy,
-  buildUpdateLimits,
-  buildWithdrawVault,
+  pausePolicyIx,
+  resumePolicyIx,
+  updateLimitsIx,
+  withdrawVaultIx,
 } from '@/lib/wallet/transactions';
 
 interface PolicyDetailsProps {
@@ -152,7 +152,7 @@ export function PolicyDetails({ policyAddress }: PolicyDetailsProps) {
     if (!publicKey || !policy) return;
 
     try {
-      const instruction = buildPausePolicy(
+      const instruction = await pausePolicyIx(
         new PublicKey(policyAddress),
         publicKey
       );
@@ -171,7 +171,7 @@ export function PolicyDetails({ policyAddress }: PolicyDetailsProps) {
     if (!publicKey || !policy) return;
 
     try {
-      const instruction = buildResumePolicy(
+      const instruction = await resumePolicyIx(
         new PublicKey(policyAddress),
         publicKey
       );
@@ -193,7 +193,7 @@ export function PolicyDetails({ policyAddress }: PolicyDetailsProps) {
       const spendingLimit = parseDecimalAmount(newSpendingLimit, MINT_DECIMALS);
       const dailyLimit = parseDecimalAmount(newDailyLimit, MINT_DECIMALS);
 
-      const instruction = buildUpdateLimits(
+      const instruction = await updateLimitsIx(
         new PublicKey(policyAddress),
         publicKey,
         spendingLimit,
@@ -216,7 +216,7 @@ export function PolicyDetails({ policyAddress }: PolicyDetailsProps) {
     try {
       const amount = parseDecimalAmount(withdrawAmount, MINT_DECIMALS);
 
-      const instruction = buildWithdrawVault(
+      const instruction = await withdrawVaultIx(
         new PublicKey(policyAddress),
         publicKey,
         amount

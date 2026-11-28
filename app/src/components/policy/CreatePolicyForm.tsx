@@ -48,7 +48,7 @@ export function CreatePolicyForm() {
       const agentPubkey = new PublicKey(agentAddress);
 
       // Build instruction
-      const instruction = buildInitializePolicy(
+      const instruction = await buildInitializePolicy(
         publicKey,
         policyId,
         agentPubkey,
