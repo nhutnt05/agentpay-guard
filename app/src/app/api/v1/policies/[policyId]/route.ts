@@ -1,5 +1,5 @@
-import { getMint } from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
+import { getMintAnyProgram } from "@/lib/solana/mint";
 import { connection as requestTime } from "next/server";
 import { getReadonlyProgram } from "@/lib/anchor/program";
 import { fail, ok } from "@/lib/api/response";
@@ -33,7 +33,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/policies/
     const p = lookup.policy;
 
     const [mint, vaultBalance, clock] = await Promise.all([
-      getMint(connection, p.mint, "confirmed"),
+      getMintAnyProgram(connection, p.mint),
       connection
         .getTokenAccountBalance(p.vault, "confirmed")
         .then((b) => b.value.amount)

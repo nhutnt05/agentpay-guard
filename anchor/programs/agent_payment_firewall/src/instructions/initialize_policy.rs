@@ -1,13 +1,15 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token::{Mint, Token, TokenAccount},
+    token_interface::{Mint, TokenAccount, TokenInterface},
 };
 
 use crate::{
     constants::*,
+    errors::AgentPayError,
     events::PolicyInitialized,
     state::AgentPolicy,
+    token_policy::check_mint_extensions_at_init,
     utils::{day_index, validate_agent, validate_limits},
 };
 
@@ -27,10 +29,11 @@ pub struct InitializePolicy<'info> {
     )]
     pub policy: Account<'info, AgentPolicy>,
 
-    /// Classic SPL Token mint (`anchor_spl::token::Mint` rejects Token-2022 by owner check).
-    pub mint: Account<'info, Mint>,
+    /// Classic SPL Token or Token-2022 mint (F-05). Token-2022 extensions are checked in the
+    /// handler (`token_policy`).
+    pub mint: InterfaceAccount<'info, Mint>,
 
-    /// Vault = ATA(policy PDA, mint, classic Token program).
+    /// Vault = ATA(policy PDA, mint, the mint's token program).
     /// `init_if_needed` (ADR-016): ATA creation is permissionless, so a pre-created canonical
     /// ATA must be adopted instead of failing. This is the ONLY use of `init_if_needed`.
     #[account(
@@ -40,9 +43,11 @@ pub struct InitializePolicy<'info> {
         associated_token::authority = policy,
         associated_token::token_program = token_program
     )]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
 
-    pub token_program: Program<'info, Token>,
+    /// Must be the program that owns the mint.
+    #[account(constraint = token_program.key() == *mint.to_account_info().owner @ AgentPayError::InvalidTokenProgram)]
+    pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
@@ -53,8 +58,10 @@ pub fn handle_initialize_policy(
     agent: Pubkey,
     max_per_tx: u64,
     daily_limit: u64,
+    accept_issuer_powers: bool,
 ) -> Result<()> {
     let owner = ctx.accounts.owner.key();
+    check_mint_extensions_at_init(&ctx.accounts.mint.to_account_info(), accept_issuer_powers)?;
     validate_limits(max_per_tx, daily_limit)?;
     validate_agent(&agent, &owner)?;
 

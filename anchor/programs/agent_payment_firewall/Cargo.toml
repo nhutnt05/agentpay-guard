@@ -40,6 +40,8 @@ solana-account = "4"
 solana-program-pack = "3"
 spl-token-interface = "2"
 spl-associated-token-account-interface = "2"
+# F-05 tests: real Token-2022 mints with extensions (same version anchor-spl already pulls in).
+spl-token-2022-interface = "2"
 # Decodes `Program data:` event logs in tests (already in the lockfile via anchor).
 base64 = "0.22"
 # Blockhash type for pre-signing transactions in race tests (single version in the lockfile).

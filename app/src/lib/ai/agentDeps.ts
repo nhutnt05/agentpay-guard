@@ -1,5 +1,5 @@
 import "server-only";
-import { getMint } from "@solana/spl-token";
+import { getMintAnyProgram } from "@/lib/solana/mint";
 import { PublicKey } from "@solana/web3.js";
 import { getReadonlyProgram } from "@/lib/anchor/program";
 import { getAllowedOwners } from "@/lib/server/access";
@@ -18,7 +18,7 @@ export function getAgentDeps(request?: Request): AgentDeps {
     agent: getAgentPublicKey(),
     allowedOwners: getAllowedOwners(),
     demoMode: process.env.DEMO_MODE === "true",
-    getDecimals: async (mint) => (await getMint(connection, mint, "confirmed")).decimals,
+    getDecimals: async (mint) => (await getMintAnyProgram(connection, mint)).decimals,
     scrape: firecrawlScrape,
     ownerSession: ownerSessionFor(request),
   };

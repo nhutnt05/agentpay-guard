@@ -3,7 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import { getReadonlyProgram } from "@/lib/anchor/program";
 import { getServerConnection } from "@/lib/solana/connection";
 import { getAllowedOwners } from "./access";
-import { getAgentKeypair } from "./agentKeypair";
+import { getAgentKey } from "./agentKeypair";
 import { getFeePayerKeypair } from "./feePayer";
 import { ownerSessionFor } from "./session";
 import type { PaymentDeps } from "./payments";
@@ -13,7 +13,7 @@ export function getPaymentDeps(request?: Request): PaymentDeps {
   const connection = getServerConnection();
   let agent: PaymentDeps["agent"] = null;
   try {
-    agent = getAgentKeypair();
+    agent = getAgentKey();
   } catch {
     agent = null; // reported as CONFIG_ERROR / POLICY_NOT_SERVED by the service
   }

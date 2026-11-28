@@ -3,11 +3,14 @@ import {
   checkProgramIdConfig,
   MAX_REQUEST_TTL_SECONDS,
   PROGRAM_ID,
+  RECEIPT_CLOSE_GRACE_SECONDS,
   REQUEST_HASH_DOMAIN,
   SECONDS_PER_DAY,
   SEED_MERCHANT,
   SEED_POLICY,
+  SEED_MERCHANT_LIMIT,
   SEED_RECEIPT,
+  SEED_RULES,
 } from "./constants";
 import idl from "./idl/agent_payment_firewall.json";
 
@@ -28,6 +31,8 @@ describe("anchor constants mirror the program", () => {
     expect(SEED_POLICY).toEqual(idlBytes("SEED_POLICY"));
     expect(SEED_MERCHANT).toEqual(idlBytes("SEED_MERCHANT"));
     expect(SEED_RECEIPT).toEqual(idlBytes("SEED_RECEIPT"));
+    expect(SEED_RULES).toEqual(idlBytes("SEED_RULES"));
+    expect(SEED_MERCHANT_LIMIT).toEqual(idlBytes("SEED_MERCHANT_LIMIT"));
     expect(REQUEST_HASH_DOMAIN).toEqual(idlBytes("REQUEST_HASH_DOMAIN"));
     expect(REQUEST_HASH_DOMAIN.length).toBe(25);
   });
@@ -35,6 +40,7 @@ describe("anchor constants mirror the program", () => {
   it("time constants equal the IDL values", () => {
     expect(SECONDS_PER_DAY).toBe(Number(idlConst("SECONDS_PER_DAY").value));
     expect(MAX_REQUEST_TTL_SECONDS).toBe(Number(idlConst("MAX_REQUEST_TTL_SECONDS").value));
+    expect(RECEIPT_CLOSE_GRACE_SECONDS).toBe(Number(idlConst("RECEIPT_CLOSE_GRACE_SECONDS").value));
   });
 
   it("checkProgramIdConfig detects a mismatched NEXT_PUBLIC_PROGRAM_ID", () => {

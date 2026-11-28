@@ -1,6 +1,7 @@
 import "server-only";
-import { Keypair, type PublicKey } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { base58Decode } from "@/lib/encoding/base58";
+import { type AgentKey, awsKmsClient, awsKmsSigner } from "./agentSigner";
 
 // Server-side agent key (docs/06 §1.2). HACKATHON DEMO CUSTODY — not production key
 // management. Rules: read only here; never logged, never returned, never in NEXT_PUBLIC_*.
@@ -69,10 +70,40 @@ export function getAgentKeypair(): Keypair {
   return cached;
 }
 
+let cachedKey: AgentKey | undefined;
+
+/**
+ * The configured agent signer (F-04, docs/16 §3). `AGENT_SIGNER`:
+ * - `local` (default): `AGENT_SECRET_KEY` in the environment (demo custody).
+ * - `aws-kms`: `AWS_KMS_KEY_ID` (ECC_NIST_EDWARDS25519 key), `AGENT_PUBLIC_KEY` (base58 of the
+ *   KMS public key; every KMS signature is verified against it), optional `AWS_REGION`.
+ *   AWS credentials come from the SDK default chain; no secret key in this app.
+ */
+export function getAgentKey(): AgentKey {
+  if (cachedKey) return cachedKey;
+  const mode = (process.env.AGENT_SIGNER ?? "local").trim() || "local";
+  if (mode === "local") {
+    cachedKey = getAgentKeypair();
+  } else if (mode === "aws-kms") {
+    const keyId = process.env.AWS_KMS_KEY_ID?.trim();
+    if (!keyId) throw new AgentKeyConfigError("AWS_KMS_KEY_ID is not set (AGENT_SIGNER=aws-kms)");
+    let publicKey: PublicKey;
+    try {
+      publicKey = new PublicKey(process.env.AGENT_PUBLIC_KEY?.trim() ?? "");
+    } catch {
+      throw new AgentKeyConfigError("AGENT_PUBLIC_KEY must be the base58 public key of the KMS key");
+    }
+    cachedKey = awsKmsSigner({ keyId, publicKey, client: awsKmsClient(process.env.AWS_REGION?.trim()) });
+  } else {
+    throw new AgentKeyConfigError(`AGENT_SIGNER must be "local" or "aws-kms"`);
+  }
+  return cachedKey;
+}
+
 /** The agent public key, or null when the key is missing/invalid (for health checks). */
 export function getAgentPublicKey(): PublicKey | null {
   try {
-    return getAgentKeypair().publicKey;
+    return getAgentKey().publicKey;
   } catch {
     return null;
   }

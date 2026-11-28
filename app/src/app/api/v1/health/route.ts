@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { connection as requestTime } from "next/server";
 import { checkProgramIdConfig } from "@/lib/anchor/constants";
 import { ok } from "@/lib/api/response";
-import { getAgentPublicKey } from "@/lib/server/agentKeypair";
+import { getAgentKey, getAgentPublicKey } from "@/lib/server/agentKeypair";
 import { getFeePayerPublicKey } from "@/lib/server/feePayer";
 import { rateLimitRead } from "@/lib/server/guards";
 import { getCluster, getServerConnection } from "@/lib/solana/connection";
@@ -50,6 +50,8 @@ export async function GET(request: Request) {
     programId: programId.idlProgramId,
     programIdConfigOk: programId.ok,
     agentPubkey: agent?.toBase58() ?? null,
+    // F-04: "local" (env key) or "aws-kms"; null when not configured.
+    agentSigner: agent ? ("kind" in getAgentKey() ? (getAgentKey() as { kind: string }).kind : "local") : null,
     agentSolBalanceLamports,
     // Optional separate fee payer (T-M4-19); null = the agent pays its own fees.
     feePayerPubkey: feePayer?.toBase58() ?? null,

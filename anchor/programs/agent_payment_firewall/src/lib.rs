@@ -3,6 +3,7 @@ pub mod errors;
 pub mod events;
 pub mod instructions;
 pub mod state;
+pub mod token_policy;
 pub mod utils;
 
 use anchor_lang::prelude::*;
@@ -25,6 +26,7 @@ pub mod agent_payment_firewall {
         agent: Pubkey,
         max_per_tx: u64,
         daily_limit: u64,
+        accept_issuer_powers: bool,
     ) -> Result<()> {
         instructions::initialize_policy::handle_initialize_policy(
             ctx,
@@ -32,6 +34,7 @@ pub mod agent_payment_firewall {
             agent,
             max_per_tx,
             daily_limit,
+            accept_issuer_powers,
         )
     }
 
@@ -84,5 +87,34 @@ pub mod agent_payment_firewall {
 
     pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
         instructions::withdraw::handle_withdraw(ctx, amount)
+    }
+
+    /// F-03: create or change the rolling 24-hour limit (owner only).
+    pub fn set_spending_rules(ctx: Context<SetSpendingRules>, rolling_limit: u64) -> Result<()> {
+        instructions::spending_rules::handle_set_spending_rules(ctx, rolling_limit)
+    }
+
+    /// F-03: remove the rolling limit (owner only; rent → owner).
+    pub fn close_spending_rules(ctx: Context<CloseSpendingRules>) -> Result<()> {
+        instructions::spending_rules::handle_close_spending_rules(ctx)
+    }
+
+    /// F-03: create or change per-merchant limits for an allowlisted merchant (owner only).
+    pub fn set_merchant_limit(
+        ctx: Context<SetMerchantLimit>,
+        max_per_tx: u64,
+        daily_limit: u64,
+    ) -> Result<()> {
+        instructions::spending_rules::handle_set_merchant_limit(ctx, max_per_tx, daily_limit)
+    }
+
+    /// F-03: remove a merchant's limits (owner only; rent → owner).
+    pub fn close_merchant_limit(ctx: Context<CloseMerchantLimit>) -> Result<()> {
+        instructions::spending_rules::handle_close_merchant_limit(ctx)
+    }
+
+    /// F-02: close a receipt after its request can no longer execute; rent → receipt agent.
+    pub fn close_receipt(ctx: Context<CloseReceipt>) -> Result<()> {
+        instructions::close_receipt::handle_close_receipt(ctx)
     }
 }

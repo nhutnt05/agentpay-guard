@@ -116,6 +116,275 @@ export type AgentPaymentFirewall = {
       "args": []
     },
     {
+      "name": "closeMerchantLimit",
+      "docs": [
+        "F-03: remove a merchant's limits (owner only; rent → owner)."
+      ],
+      "discriminator": [
+        89,
+        198,
+        22,
+        28,
+        16,
+        221,
+        129,
+        139
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "policy"
+          ]
+        },
+        {
+          "name": "policy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  108,
+                  105,
+                  99,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "policy.owner",
+                "account": "agentPolicy"
+              },
+              {
+                "kind": "account",
+                "path": "policy.policyId",
+                "account": "agentPolicy"
+              }
+            ]
+          },
+          "relations": [
+            "merchantLimit"
+          ]
+        },
+        {
+          "name": "merchant",
+          "relations": [
+            "merchantLimit"
+          ]
+        },
+        {
+          "name": "merchantLimit",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  114,
+                  99,
+                  104,
+                  97,
+                  110,
+                  116,
+                  95,
+                  108,
+                  105,
+                  109,
+                  105,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "policy"
+              },
+              {
+                "kind": "account",
+                "path": "merchant"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "closeReceipt",
+      "docs": [
+        "F-02: close a receipt after its request can no longer execute; rent → receipt agent."
+      ],
+      "discriminator": [
+        126,
+        254,
+        244,
+        203,
+        124,
+        164,
+        134,
+        89
+      ],
+      "accounts": [
+        {
+          "name": "closer",
+          "docs": [
+            "Policy owner or the agent recorded in the receipt."
+          ],
+          "signer": true
+        },
+        {
+          "name": "policy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  108,
+                  105,
+                  99,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "policy.owner",
+                "account": "agentPolicy"
+              },
+              {
+                "kind": "account",
+                "path": "policy.policyId",
+                "account": "agentPolicy"
+              }
+            ]
+          },
+          "relations": [
+            "receipt"
+          ]
+        },
+        {
+          "name": "receipt",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  101,
+                  105,
+                  112,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "policy"
+              },
+              {
+                "kind": "account",
+                "path": "receipt.requestHash",
+                "account": "paymentReceipt"
+              }
+            ]
+          }
+        },
+        {
+          "name": "rentDestination",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "closeSpendingRules",
+      "docs": [
+        "F-03: remove the rolling limit (owner only; rent → owner)."
+      ],
+      "discriminator": [
+        116,
+        187,
+        219,
+        119,
+        208,
+        247,
+        227,
+        111
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "policy"
+          ]
+        },
+        {
+          "name": "policy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  108,
+                  105,
+                  99,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "policy.owner",
+                "account": "agentPolicy"
+              },
+              {
+                "kind": "account",
+                "path": "policy.policyId",
+                "account": "agentPolicy"
+              }
+            ]
+          },
+          "relations": [
+            "spendingRules"
+          ]
+        },
+        {
+          "name": "spendingRules",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  117,
+                  108,
+                  101,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "policy"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "executePayment",
       "docs": [
         "Arguments order matters: `request_hash` is first because it is used in the receipt seeds."
@@ -219,9 +488,72 @@ export type AgentPaymentFirewall = {
           }
         },
         {
+          "name": "spendingRules",
+          "docs": [
+            "agent cannot substitute or omit it); enforced only if it exists, i.e. is owned by this",
+            "program. Only this program can make the PDA program-owned, and sending lamports to the",
+            "address does not change that, so nobody can turn a rule on or off except the owner."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  117,
+                  108,
+                  101,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "policy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "merchantLimit",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  114,
+                  99,
+                  104,
+                  97,
+                  110,
+                  116,
+                  95,
+                  108,
+                  105,
+                  109,
+                  105,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "policy"
+              },
+              {
+                "kind": "account",
+                "path": "merchant"
+              }
+            ]
+          }
+        },
+        {
           "name": "mint",
           "docs": [
-            "5. Classic SPL mint (owner check rejects Token-2022); equality via `has_one = mint`."
+            "5. Classic SPL or Token-2022 mint (F-05); equality via `has_one = mint`. The token",
+            "program check sits here so a wrong program fails before the ATA derivations below."
           ],
           "relations": [
             "policy"
@@ -278,9 +610,8 @@ export type AgentPaymentFirewall = {
         {
           "name": "tokenProgram",
           "docs": [
-            "9. Classic SPL Token program only."
-          ],
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+            "9. Token program that owns the mint (classic or Token-2022, F-05)."
+          ]
         },
         {
           "name": "systemProgram",
@@ -367,13 +698,14 @@ export type AgentPaymentFirewall = {
         {
           "name": "mint",
           "docs": [
-            "Classic SPL Token mint (`anchor_spl::token::Mint` rejects Token-2022 by owner check)."
+            "Classic SPL Token or Token-2022 mint (F-05). Token-2022 extensions are checked in the",
+            "handler (`token_policy`)."
           ]
         },
         {
           "name": "vault",
           "docs": [
-            "Vault = ATA(policy PDA, mint, classic Token program).",
+            "Vault = ATA(policy PDA, mint, the mint's token program).",
             "`init_if_needed` (ADR-016): ATA creation is permissionless, so a pre-created canonical",
             "ATA must be adopted instead of failing. This is the ONLY use of `init_if_needed`."
           ],
@@ -434,7 +766,9 @@ export type AgentPaymentFirewall = {
         },
         {
           "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "docs": [
+            "Must be the program that owns the mint."
+          ]
         },
         {
           "name": "associatedTokenProgram",
@@ -466,6 +800,10 @@ export type AgentPaymentFirewall = {
         {
           "name": "dailyLimit",
           "type": "u64"
+        },
+        {
+          "name": "acceptIssuerPowers",
+          "type": "bool"
         }
       ]
     },
@@ -670,6 +1008,239 @@ export type AgentPaymentFirewall = {
       "args": []
     },
     {
+      "name": "setMerchantLimit",
+      "docs": [
+        "F-03: create or change per-merchant limits for an allowlisted merchant (owner only)."
+      ],
+      "discriminator": [
+        240,
+        127,
+        32,
+        187,
+        236,
+        238,
+        124,
+        105
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "policy"
+          ]
+        },
+        {
+          "name": "policy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  108,
+                  105,
+                  99,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "policy.owner",
+                "account": "agentPolicy"
+              },
+              {
+                "kind": "account",
+                "path": "policy.policyId",
+                "account": "agentPolicy"
+              }
+            ]
+          },
+          "relations": [
+            "merchantAllowlist"
+          ]
+        },
+        {
+          "name": "merchant",
+          "relations": [
+            "merchantAllowlist"
+          ]
+        },
+        {
+          "name": "merchantAllowlist",
+          "docs": [
+            "Limits only make sense for an allowlisted merchant (missing → AccountNotInitialized)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  114,
+                  99,
+                  104,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "policy"
+              },
+              {
+                "kind": "account",
+                "path": "merchant"
+              }
+            ]
+          }
+        },
+        {
+          "name": "merchantLimit",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  114,
+                  99,
+                  104,
+                  97,
+                  110,
+                  116,
+                  95,
+                  108,
+                  105,
+                  109,
+                  105,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "policy"
+              },
+              {
+                "kind": "account",
+                "path": "merchant"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "maxPerTx",
+          "type": "u64"
+        },
+        {
+          "name": "dailyLimit",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "setSpendingRules",
+      "docs": [
+        "F-03: create or change the rolling 24-hour limit (owner only)."
+      ],
+      "discriminator": [
+        11,
+        55,
+        116,
+        125,
+        94,
+        151,
+        46,
+        38
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "policy"
+          ]
+        },
+        {
+          "name": "policy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  108,
+                  105,
+                  99,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "policy.owner",
+                "account": "agentPolicy"
+              },
+              {
+                "kind": "account",
+                "path": "policy.policyId",
+                "account": "agentPolicy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spendingRules",
+          "docs": [
+            "`init_if_needed`: owner-only and every field is written below (a pre-funded address is",
+            "adopted by Anchor's init path, so nobody can block the owner by sending lamports)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  117,
+                  108,
+                  101,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "policy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "rollingLimit",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "updatePolicy",
       "discriminator": [
         212,
@@ -791,7 +1362,7 @@ export type AgentPaymentFirewall = {
         {
           "name": "mint",
           "docs": [
-            "Classic SPL mint; equality via `has_one = mint`."
+            "Classic SPL or Token-2022 mint; equality via `has_one = mint`."
           ],
           "relations": [
             "policy"
@@ -813,8 +1384,7 @@ export type AgentPaymentFirewall = {
           "writable": true
         },
         {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "tokenProgram"
         }
       ],
       "args": [
@@ -853,6 +1423,19 @@ export type AgentPaymentFirewall = {
       ]
     },
     {
+      "name": "merchantLimit",
+      "discriminator": [
+        145,
+        170,
+        111,
+        21,
+        118,
+        59,
+        82,
+        73
+      ]
+    },
+    {
       "name": "paymentReceipt",
       "discriminator": [
         168,
@@ -863,6 +1446,19 @@ export type AgentPaymentFirewall = {
         235,
         126,
         109
+      ]
+    },
+    {
+      "name": "spendingRules",
+      "discriminator": [
+        116,
+        159,
+        178,
+        72,
+        158,
+        215,
+        92,
+        232
       ]
     }
   ],
@@ -878,6 +1474,19 @@ export type AgentPaymentFirewall = {
         222,
         81,
         51
+      ]
+    },
+    {
+      "name": "merchantLimitSet",
+      "discriminator": [
+        127,
+        24,
+        60,
+        143,
+        176,
+        236,
+        118,
+        140
       ]
     },
     {
@@ -956,6 +1565,32 @@ export type AgentPaymentFirewall = {
         236,
         245,
         161
+      ]
+    },
+    {
+      "name": "receiptClosed",
+      "discriminator": [
+        127,
+        232,
+        161,
+        69,
+        46,
+        187,
+        159,
+        188
+      ]
+    },
+    {
+      "name": "spendingRulesSet",
+      "discriminator": [
+        38,
+        183,
+        45,
+        76,
+        63,
+        129,
+        194,
+        133
       ]
     },
     {
@@ -1082,6 +1717,51 @@ export type AgentPaymentFirewall = {
       "code": 6021,
       "name": "invalidMerchant",
       "msg": "Merchant must not be default, the policy, the vault, or the agent"
+    },
+    {
+      "code": 6022,
+      "name": "unauthorizedCloser",
+      "msg": "Only the policy owner or the receipt agent may close a receipt"
+    },
+    {
+      "code": 6023,
+      "name": "invalidRentDestination",
+      "msg": "Rent must be refunded to the agent that paid the receipt"
+    },
+    {
+      "code": 6024,
+      "name": "receiptNotExpired",
+      "msg": "Receipt cannot be closed before its request expiry plus the grace period"
+    },
+    {
+      "code": 6025,
+      "name": "unsupportedMintExtension",
+      "msg": "Mint uses a Token-2022 extension that is not supported, or is not inert"
+    },
+    {
+      "code": 6026,
+      "name": "issuerPowersNotAccepted",
+      "msg": "Mint has issuer powers (permanent delegate); the owner must accept them explicitly"
+    },
+    {
+      "code": 6027,
+      "name": "invalidTokenProgram",
+      "msg": "Token program does not match the mint's owner program"
+    },
+    {
+      "code": 6028,
+      "name": "exceedsRollingLimit",
+      "msg": "Amount exceeds the rolling 24-hour limit"
+    },
+    {
+      "code": 6029,
+      "name": "exceedsMerchantMaxPerTx",
+      "msg": "Amount exceeds this merchant's per-transaction limit"
+    },
+    {
+      "code": 6030,
+      "name": "exceedsMerchantDailyLimit",
+      "msg": "Amount exceeds this merchant's daily limit"
     }
   ],
   "types": [
@@ -1234,6 +1914,80 @@ export type AgentPaymentFirewall = {
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "merchantLimit",
+      "docs": [
+        "F-03: optional per-merchant limits (docs/16 §2). Exists ⇒ enforced in addition to the",
+        "policy limits. Size: 8 + 97 = 105 bytes."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "policy",
+            "type": "pubkey"
+          },
+          {
+            "name": "merchant",
+            "type": "pubkey"
+          },
+          {
+            "name": "maxPerTx",
+            "type": "u64"
+          },
+          {
+            "name": "dailyLimit",
+            "type": "u64"
+          },
+          {
+            "name": "spentToday",
+            "docs": [
+              "Base units paid to this merchant during `day_index` (lazily reset)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "dayIndex",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "merchantLimitSet",
+      "docs": [
+        "F-03: per-merchant limits created or changed."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "policy",
+            "type": "pubkey"
+          },
+          {
+            "name": "merchant",
+            "type": "pubkey"
+          },
+          {
+            "name": "maxPerTx",
+            "type": "u64"
+          },
+          {
+            "name": "dailyLimit",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
@@ -1473,6 +2227,127 @@ export type AgentPaymentFirewall = {
       }
     },
     {
+      "name": "receiptClosed",
+      "docs": [
+        "F-02: a receipt was closed and its rent refunded to the agent that paid it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "policy",
+            "type": "pubkey"
+          },
+          {
+            "name": "receipt",
+            "type": "pubkey"
+          },
+          {
+            "name": "requestHash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "merchant",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "closer",
+            "type": "pubkey"
+          },
+          {
+            "name": "rentDestination",
+            "type": "pubkey"
+          },
+          {
+            "name": "lamports",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "spendingRules",
+      "docs": [
+        "F-03: optional rolling 24-hour limit of a policy (docs/16 §2). Exists ⇒ enforced.",
+        "Size: 8 + 241 = 249 bytes."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "policy",
+            "type": "pubkey"
+          },
+          {
+            "name": "rollingLimit",
+            "docs": [
+              "Max base units in the current hour plus the previous 23 hours."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "buckets",
+            "docs": [
+              "Spend per UTC hour, ring buffer indexed by `hour.rem_euclid(24)`."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                24
+              ]
+            }
+          },
+          {
+            "name": "currentHour",
+            "docs": [
+              "`unix_timestamp.div_euclid(3600)` of the newest bucket."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "spendingRulesSet",
+      "docs": [
+        "F-03: rolling limit created or changed (`rolling_limit == 0` never emitted: closing is separate)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "policy",
+            "type": "pubkey"
+          },
+          {
+            "name": "rollingLimit",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "withdrawn",
       "type": {
         "kind": "struct",
@@ -1507,6 +2382,15 @@ export type AgentPaymentFirewall = {
       "value": "600"
     },
     {
+      "name": "receiptCloseGraceSeconds",
+      "docs": [
+        "Extra wait after the latest possible request expiry before a receipt may be closed",
+        "(F-02, docs/16 §1): covers cluster clock drift between the close and a replay attempt."
+      ],
+      "type": "i64",
+      "value": "86400"
+    },
+    {
       "name": "requestHashDomain",
       "docs": [
         "Domain separator of the canonical request hash (docs/11 §3). 25 bytes."
@@ -1523,12 +2407,28 @@ export type AgentPaymentFirewall = {
       "value": "86400"
     },
     {
+      "name": "secondsPerHour",
+      "docs": [
+        "Rolling window granularity (F-03): one bucket per UTC hour."
+      ],
+      "type": "i64",
+      "value": "3600"
+    },
+    {
       "name": "seedMerchant",
       "docs": [
         "PDA seed for `MerchantAllowlist`: [SEED_MERCHANT, policy, merchant]."
       ],
       "type": "bytes",
       "value": "[109, 101, 114, 99, 104, 97, 110, 116]"
+    },
+    {
+      "name": "seedMerchantLimit",
+      "docs": [
+        "PDA seed for `MerchantLimit` (F-03): [SEED_MERCHANT_LIMIT, policy, merchant]."
+      ],
+      "type": "bytes",
+      "value": "[109, 101, 114, 99, 104, 97, 110, 116, 95, 108, 105, 109, 105, 116]"
     },
     {
       "name": "seedPolicy",
@@ -1545,6 +2445,14 @@ export type AgentPaymentFirewall = {
       ],
       "type": "bytes",
       "value": "[114, 101, 99, 101, 105, 112, 116]"
+    },
+    {
+      "name": "seedRules",
+      "docs": [
+        "PDA seed for `SpendingRules` (F-03): [SEED_RULES, policy]."
+      ],
+      "type": "bytes",
+      "value": "[114, 117, 108, 101, 115]"
     }
   ]
 };

@@ -10,7 +10,6 @@ import {
   PublicKey,
   TransactionInstruction,
   SystemProgram,
-  SYSVAR_RENT_PUBKEY,
 } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { policyPda, vaultAddress, merchantAllowlistPda } from '@/lib/anchor/pda';
@@ -39,25 +38,27 @@ export function buildInitializePolicy(
   const vaultATA = vaultAddress(policyPDA, MINT);
 
   // Encode instruction data: discriminator + policy_id + agent + max_per_tx + daily_limit
+  // + accept_issuer_powers (bool, F-05; false = refuse Token-2022 mints with a permanent delegate)
   const discriminator = encodeDiscriminator('initialize_policy');
-  const data = Buffer.alloc(8 + 32 + 32 + 8 + 8);
-  
+  const data = Buffer.alloc(8 + 32 + 32 + 8 + 8 + 1);
+
   discriminator.copy(data, 0);
   Buffer.from(policyId).copy(data, 8);
   agent.toBuffer().copy(data, 40);
   new BN(maxPerTx.toString()).toArrayLike(Buffer, 'le', 8).copy(data, 72);
   new BN(dailyLimit.toString()).toArrayLike(Buffer, 'le', 8).copy(data, 80);
+  data.writeUInt8(0, 88);
 
+  // Account order must match the program's `InitializePolicy` struct exactly.
   return new TransactionInstruction({
     keys: [
-      { pubkey: policyPDA, isSigner: false, isWritable: true },
-      { pubkey: vaultATA, isSigner: false, isWritable: true },
-      { pubkey: MINT, isSigner: false, isWritable: false },
       { pubkey: owner, isSigner: true, isWritable: true },
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: policyPDA, isSigner: false, isWritable: true },
+      { pubkey: MINT, isSigner: false, isWritable: false },
+      { pubkey: vaultATA, isSigner: false, isWritable: true },
       { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
       { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-      { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
     programId: PROGRAM_ID,
     data,
