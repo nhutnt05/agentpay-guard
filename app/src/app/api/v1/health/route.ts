@@ -1,9 +1,19 @@
+import { PublicKey } from "@solana/web3.js";
 import { connection as requestTime } from "next/server";
 import { checkProgramIdConfig } from "@/lib/anchor/constants";
 import { ok } from "@/lib/api/response";
 import { getAgentPublicKey } from "@/lib/server/agentKeypair";
 import { rateLimitRead } from "@/lib/server/guards";
 import { getCluster, getServerConnection } from "@/lib/solana/connection";
+
+function publicKeyOrNull(value: string | undefined): string | null {
+  if (!value || value.startsWith("<")) return null;
+  try {
+    return new PublicKey(value).toBase58();
+  } catch {
+    return null;
+  }
+}
 
 // GET /api/v1/health (docs/06 §3.1). Always answers, even when the RPC is down, and never
 // returns secrets — only which integrations are configured.
@@ -41,6 +51,15 @@ export async function GET(request: Request) {
     llmConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
     firecrawlConfigured: Boolean(process.env.FIRECRAWL_API_KEY),
     allowedOwnersConfigured: Boolean(process.env.ALLOWED_POLICY_OWNERS?.trim()),
+    // Public demo configuration (public keys only) for the Security Demo page.
+    demo:
+      process.env.DEMO_MODE === "true"
+        ? {
+            enabled: true,
+            merchantWallet: publicKeyOrNull(process.env.DEMO_MERCHANT_WALLET),
+            attackerWallet: publicKeyOrNull(process.env.DEMO_ATTACKER_WALLET),
+          }
+        : { enabled: false, merchantWallet: null, attackerWallet: null },
     version: "0.1.0",
   });
 }
