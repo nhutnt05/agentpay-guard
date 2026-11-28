@@ -183,7 +183,8 @@ function pageProgram(owner: PublicKey): Program<AgentPaymentFirewall> {
 
 /**
  * initialize_policy for the configured demo mint (classic SPL Token).
- * `acceptIssuerPowers` (F-05) only matters for Token-2022 mints with a permanent delegate.
+ * `acceptIssuerPowers` (F-05) only matters for Token-2022 mints with issuer powers (PermanentDelegate or,
+ * since 2026-11-28, MintCloseAuthority); the UI always sends false, so such mints are refused.
  */
 export async function buildInitializePolicy(
   owner: PublicKey,

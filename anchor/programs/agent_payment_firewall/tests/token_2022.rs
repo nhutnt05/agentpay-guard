@@ -392,7 +392,18 @@ fn t22_10_pyusd_like_mint_with_opt_in() {
 
     let mut env = env22(&exts, true);
     let req = env.request(2 * ONE);
-    env.pay(&req).expect("payment");
+    let meta = env.pay(&req).expect("payment");
+    // docs/16 §4.2: extension parsing at every payment must stay well inside the default
+    // 200k CU per-instruction budget (the x402 spec also caps sponsored txs at 400k).
+    println!(
+        "T22-10 execute_payment compute units: {}",
+        meta.compute_units_consumed
+    );
+    assert!(
+        meta.compute_units_consumed < 100_000,
+        "CU {}",
+        meta.compute_units_consumed
+    );
     assert_eq!(env.balances(), (VAULT_FUNDING - 2 * ONE, 2 * ONE, 2 * ONE));
 }
 
