@@ -2,7 +2,15 @@ import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { hexToBytes } from "@/lib/encoding/hex";
 import { PROGRAM_ID } from "./constants";
-import { merchantAllowlistPda, merchantTokenAccount, policyPda, receiptPda, vaultAddress } from "./pda";
+import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import {
+  merchantAllowlistPda,
+  merchantTokenAccount,
+  policyPda,
+  receiptPda,
+  tokenProgramForPolicy,
+  vaultAddress,
+} from "./pda";
 
 // PDA-03 (TypeScript half): reproduces the cross-language vector of docs/04 §6.1, which was
 // produced by the Rust test PDA-03 and independently by `solana find-program-derived-address`.
@@ -39,6 +47,17 @@ describe("PDA derivation (PDA-03 TS)", () => {
     const mint = key(0x04);
     const merchant = key(0x33);
     expect(merchantTokenAccount(merchant, mint).equals(vaultAddress(merchant, mint))).toBe(true);
+  });
+
+  it("F-05: token program is inferred from the stored vault (classic vs Token-2022)", () => {
+    const policy = PublicKey.unique();
+    const mint = PublicKey.unique();
+    const classicVault = vaultAddress(policy, mint);
+    const t22Vault = vaultAddress(policy, mint, TOKEN_2022_PROGRAM_ID);
+    expect(classicVault.equals(t22Vault)).toBe(false);
+    expect(tokenProgramForPolicy(policy, mint, classicVault).equals(TOKEN_PROGRAM_ID)).toBe(true);
+    expect(tokenProgramForPolicy(policy, mint, t22Vault).equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
+    expect(() => tokenProgramForPolicy(policy, mint, PublicKey.unique())).toThrow(/not an ATA/);
   });
 
   it("rejects wrong-length policy ids and hashes", () => {

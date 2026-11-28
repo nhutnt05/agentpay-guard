@@ -58,6 +58,36 @@ pub struct PaymentReceipt {
     pub bump: u8,
 }
 
+/// F-03: optional rolling 24-hour limit of a policy (docs/16 §2). Exists ⇒ enforced.
+/// Size: 8 + 241 = 249 bytes.
+#[account]
+#[derive(InitSpace)]
+pub struct SpendingRules {
+    pub policy: Pubkey,
+    /// Max base units in the current hour plus the previous 23 hours.
+    pub rolling_limit: u64,
+    /// Spend per UTC hour, ring buffer indexed by `hour.rem_euclid(24)`.
+    pub buckets: [u64; 24],
+    /// `unix_timestamp.div_euclid(3600)` of the newest bucket.
+    pub current_hour: i64,
+    pub bump: u8,
+}
+
+/// F-03: optional per-merchant limits (docs/16 §2). Exists ⇒ enforced in addition to the
+/// policy limits. Size: 8 + 97 = 105 bytes.
+#[account]
+#[derive(InitSpace)]
+pub struct MerchantLimit {
+    pub policy: Pubkey,
+    pub merchant: Pubkey,
+    pub max_per_tx: u64,
+    pub daily_limit: u64,
+    /// Base units paid to this merchant during `day_index` (lazily reset).
+    pub spent_today: u64,
+    pub day_index: i64,
+    pub bump: u8,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,5 +108,7 @@ mod tests {
         assert_eq!(ANCHOR_DISCRIMINATOR_LEN + AgentPolicy::INIT_SPACE, 210);
         assert_eq!(ANCHOR_DISCRIMINATOR_LEN + MerchantAllowlist::INIT_SPACE, 82);
         assert_eq!(ANCHOR_DISCRIMINATOR_LEN + PaymentReceipt::INIT_SPACE, 185);
+        assert_eq!(ANCHOR_DISCRIMINATOR_LEN + SpendingRules::INIT_SPACE, 249);
+        assert_eq!(ANCHOR_DISCRIMINATOR_LEN + MerchantLimit::INIT_SPACE, 105);
     }
 }

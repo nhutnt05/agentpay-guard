@@ -4,7 +4,7 @@ import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { describe, expect, it } from "vitest";
 import { PROGRAM_ID } from "./constants";
 import idl from "./idl/agent_payment_firewall.json";
-import { merchantAllowlistPda, merchantTokenAccount, receiptPda, vaultAddress } from "./pda";
+import { merchantAllowlistPda, merchantLimitPda, merchantTokenAccount, receiptPda, spendingRulesPda, vaultAddress } from "./pda";
 import { getReadonlyProgram, readOnlyWallet } from "./program";
 
 // Offline checks of the @anchor-lang/core client against our IDL (no RPC calls are made:
@@ -37,6 +37,8 @@ describe("program client", () => {
         policy,
         merchant,
         merchantAllowlist: merchantAllowlistPda(policy, merchant)[0],
+        spendingRules: spendingRulesPda(policy)[0],
+        merchantLimit: merchantLimitPda(policy, merchant)[0],
         mint,
         vault: vaultAddress(policy, mint),
         merchantTokenAccount: merchantTokenAccount(merchant, mint),

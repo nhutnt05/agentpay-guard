@@ -8,11 +8,11 @@
 import { useState } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { useRouter } from 'next/navigation';
+import { PublicKey } from '@solana/web3.js';
 import { Button } from '@/components/ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { getBrowserProgram } from '@/lib/wallet/program';
 import { buildInitializePolicy } from '@/lib/wallet/transactions';
 import { useSendTransaction } from '@/lib/wallet/useSendTransaction';
 import { policyPda } from '@/lib/anchor/pda';
@@ -25,6 +25,7 @@ export function CreatePolicyForm() {
   const router = useRouter();
   const { send, loading, error } = useSendTransaction();
 
+  const [agentAddress, setAgentAddress] = useState('');
   const [spendingLimit, setSpendingLimit] = useState('0.1');
   const [dailyLimit, setDailyLimit] = useState('1');
   const [success, setSuccess] = useState<string | null>(null);
@@ -32,11 +33,9 @@ export function CreatePolicyForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!publicKey) return;
+    if (!publicKey || !agentAddress) return;
 
     try {
-      const program = getBrowserProgram(connection);
-
       // Parse decimal amounts to base units
       const spendingLimitUnits = parseDecimalAmount(spendingLimit, MINT_DECIMALS);
       const dailyLimitUnits = parseDecimalAmount(dailyLimit, MINT_DECIMALS);
@@ -45,11 +44,14 @@ export function CreatePolicyForm() {
       const policyId = new Uint8Array(32);
       crypto.getRandomValues(policyId);
 
+      // Parse agent address
+      const agentPubkey = new PublicKey(agentAddress);
+
       // Build instruction
       const instruction = await buildInitializePolicy(
-        program,
         publicKey,
         policyId,
+        agentPubkey,
         spendingLimitUnits,
         dailyLimitUnits
       );
@@ -111,6 +113,28 @@ export function CreatePolicyForm() {
               </div>
               <p className="mt-2 text-sm text-gray-500">
                 Your wallet address will be the policy owner
+              </p>
+            </div>
+
+            {/* Agent Address */}
+            <div>
+              <label
+                htmlFor="agentAddress"
+                className="block text-sm font-medium text-gray-300 mb-2"
+              >
+                Agent Public Key
+              </label>
+              <Input
+                id="agentAddress"
+                type="text"
+                placeholder="Enter agent wallet address..."
+                value={agentAddress}
+                onChange={(e) => setAgentAddress(e.target.value)}
+                disabled={loading}
+                required
+              />
+              <p className="mt-2 text-sm text-gray-500">
+                The agent that will execute payments (get this from your server)
               </p>
             </div>
 
@@ -180,7 +204,11 @@ export function CreatePolicyForm() {
             )}
 
             {/* Submit Button */}
-            <Button type="submit" disabled={loading || !!success} className="w-full">
+            <Button
+              type="submit"
+              disabled={loading || !!success || !agentAddress}
+              className="w-full"
+            >
               {loading ? 'Creating Policy...' : 'Create Policy'}
             </Button>
 

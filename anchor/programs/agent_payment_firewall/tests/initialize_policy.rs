@@ -4,7 +4,7 @@ mod common;
 
 use {
     agent_payment_firewall::{errors::AgentPayError, utils::day_index},
-    anchor_lang::{error::ErrorCode as AnchorErrorCode, prelude::Pubkey},
+    anchor_lang::prelude::Pubkey,
     common::*,
     solana_signer::Signer,
     spl_token_interface::ID as TOKEN_PROGRAM_ID,
@@ -165,7 +165,10 @@ fn ip04_invalid_agent_rejected() {
     }
 }
 
-/// IP-05: a Token-2022 mint is rejected by the classic `Mint` owner check.
+/// IP-05 (changed by F-05): a Token-2022 mint passed with the CLASSIC token program is
+/// rejected. The vault ATA is created while accounts load (`init_if_needed`), so the ATA
+/// program refuses the mismatched token program (`IncorrectProgramId`) before the
+/// `InvalidTokenProgram` constraint runs. Token-2022 itself: tests/token_2022.rs.
 #[test]
 fn ip05_token_2022_mint_rejected() {
     let Fixture {
@@ -185,10 +188,9 @@ fn ip05_token_2022_mint_rejected() {
         MAX_PER_TX,
         DAILY_LIMIT,
     );
-    assert_error_code(
-        send(&mut svm, &[ix], &owner, &[]),
-        u32::from(AnchorErrorCode::AccountOwnedByWrongProgram),
-    );
+    let res = send(&mut svm, &[ix], &owner, &[]);
+    let err = format!("{:?}", res.as_ref().err().map(|e| &e.err));
+    assert!(err.contains("IncorrectProgramId"), "got {err}");
     assert!(!account_exists(&svm, &policy));
 }
 

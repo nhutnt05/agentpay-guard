@@ -52,6 +52,26 @@ pub fn apply_daily_spend(
     amount: u64,
     daily_limit: u64,
 ) -> Result<DailySpend> {
+    apply_daily_spend_or(
+        spent_today,
+        stored_day_index,
+        now,
+        amount,
+        daily_limit,
+        AgentPayError::ExceedsDailyLimit,
+    )
+}
+
+/// Same lazy-reset daily accounting, with the error to raise when the limit is exceeded
+/// (policy limit vs F-03 per-merchant limit).
+pub fn apply_daily_spend_or(
+    spent_today: u64,
+    stored_day_index: i64,
+    now: i64,
+    amount: u64,
+    daily_limit: u64,
+    exceeded: AgentPayError,
+) -> Result<DailySpend> {
     let current_day = day_index(now);
     let (base, day) = if current_day > stored_day_index {
         (0, current_day)
@@ -61,7 +81,9 @@ pub fn apply_daily_spend(
     let new_spent = base
         .checked_add(amount)
         .ok_or(error!(AgentPayError::ArithmeticOverflow))?;
-    require!(new_spent <= daily_limit, AgentPayError::ExceedsDailyLimit);
+    if new_spent > daily_limit {
+        return Err(exceeded.into());
+    }
     Ok(DailySpend {
         spent_today: new_spent,
         day_index: day,
@@ -69,6 +91,56 @@ pub fn apply_daily_spend(
 }
 
 /// Policy limit invariant: both > 0 and `max_per_tx <= daily_limit`.
+/// Result of rolling-window accounting (F-03).
+#[derive(Debug, PartialEq, Eq)]
+pub struct RollingSpend {
+    pub buckets: [u64; ROLLING_BUCKETS],
+    pub current_hour: i64,
+}
+
+/// F-03 rolling 24-hour window with hourly buckets (docs/16 §2.3). Buckets older than 24 h
+/// are zeroed lazily; the window is the current hour plus the previous 23 hours. If the clock
+/// is earlier than `current_hour`, spend is counted into the current bucket (never un-zeroed).
+pub fn apply_rolling_spend(
+    buckets: [u64; ROLLING_BUCKETS],
+    current_hour: i64,
+    now: i64,
+    amount: u64,
+    rolling_limit: u64,
+) -> Result<RollingSpend> {
+    let hour = now.div_euclid(SECONDS_PER_HOUR);
+    let mut b = buckets;
+    let mut cur = current_hour;
+    if hour > cur {
+        let gap = hour
+            .checked_sub(cur)
+            .ok_or(error!(AgentPayError::ArithmeticOverflow))?
+            .min(ROLLING_BUCKETS as i64);
+        for k in 1..=gap {
+            b[(cur + k).rem_euclid(ROLLING_BUCKETS as i64) as usize] = 0;
+        }
+        cur = hour;
+    }
+    let mut window: u64 = 0;
+    for v in b {
+        window = window
+            .checked_add(v)
+            .ok_or(error!(AgentPayError::ArithmeticOverflow))?;
+    }
+    let total = window
+        .checked_add(amount)
+        .ok_or(error!(AgentPayError::ArithmeticOverflow))?;
+    require!(total <= rolling_limit, AgentPayError::ExceedsRollingLimit);
+    let idx = cur.rem_euclid(ROLLING_BUCKETS as i64) as usize;
+    b[idx] = b[idx]
+        .checked_add(amount)
+        .ok_or(error!(AgentPayError::ArithmeticOverflow))?;
+    Ok(RollingSpend {
+        buckets: b,
+        current_hour: cur,
+    })
+}
+
 pub fn validate_limits(max_per_tx: u64, daily_limit: u64) -> Result<()> {
     require!(
         max_per_tx > 0 && daily_limit > 0 && max_per_tx <= daily_limit,
@@ -270,5 +342,70 @@ mod tests {
             let err = validate_merchant(&bad, &policy, &vault, &agent).unwrap_err();
             assert_eq!(code(err), u32::from(AgentPayError::InvalidMerchant));
         }
+    }
+}
+
+/// F-03 rolling window unit tests (RL-U-*).
+#[cfg(test)]
+mod rolling_tests {
+    use super::*;
+
+    const H: i64 = SECONDS_PER_HOUR;
+    const T0: i64 = 1_800_000_000; // arbitrary UTC time
+    fn empty() -> [u64; ROLLING_BUCKETS] {
+        [0; ROLLING_BUCKETS]
+    }
+    fn code(r: Result<RollingSpend>) -> u32 {
+        match r.unwrap_err() {
+            anchor_lang::error::Error::AnchorError(e) => e.error_code_number,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn accumulates_within_window_and_rejects_over_limit() {
+        let r = apply_rolling_spend(empty(), T0 / H, T0, 60, 100).unwrap();
+        let r = apply_rolling_spend(r.buckets, r.current_hour, T0 + 5 * H, 40, 100).unwrap();
+        assert_eq!(r.buckets.iter().sum::<u64>(), 100);
+        let over = apply_rolling_spend(r.buckets, r.current_hour, T0 + 6 * H, 1, 100);
+        assert_eq!(code(over), u32::from(AgentPayError::ExceedsRollingLimit));
+    }
+
+    #[test]
+    fn crossing_utc_midnight_does_not_reset() {
+        let midnight = (T0 / 86_400 + 1) * 86_400;
+        let r =
+            apply_rolling_spend(empty(), (midnight - 600) / H, midnight - 600, 100, 100).unwrap();
+        let next_day = apply_rolling_spend(r.buckets, r.current_hour, midnight + 600, 1, 100);
+        assert_eq!(
+            code(next_day),
+            u32::from(AgentPayError::ExceedsRollingLimit)
+        );
+    }
+
+    #[test]
+    fn spend_expires_after_24_hours() {
+        let r = apply_rolling_spend(empty(), T0 / H, T0, 100, 100).unwrap();
+        // 23 hours later the bucket is still in the window.
+        assert!(apply_rolling_spend(r.buckets, r.current_hour, T0 + 23 * H, 1, 100).is_err());
+        // 24 hours later it has rotated out.
+        let later = apply_rolling_spend(r.buckets, r.current_hour, T0 + 24 * H, 100, 100).unwrap();
+        assert_eq!(later.buckets.iter().sum::<u64>(), 100);
+    }
+
+    #[test]
+    fn long_gap_zeroes_everything_without_overflow() {
+        let full = [4u64; ROLLING_BUCKETS];
+        let r = apply_rolling_spend(full, T0 / H, T0 + 10_000 * H, 5, 100).unwrap();
+        assert_eq!(r.buckets.iter().sum::<u64>(), 5);
+        assert_eq!(r.current_hour, T0 / H + 10_000);
+    }
+
+    #[test]
+    fn clock_going_back_counts_into_current_bucket() {
+        let r = apply_rolling_spend(empty(), T0 / H, T0, 10, 100).unwrap();
+        let back = apply_rolling_spend(r.buckets, r.current_hour, T0 - 3 * H, 10, 100).unwrap();
+        assert_eq!(back.current_hour, T0 / H);
+        assert_eq!(back.buckets[(T0 / H).rem_euclid(24) as usize], 20);
     }
 }

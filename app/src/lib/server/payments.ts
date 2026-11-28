@@ -1,17 +1,25 @@
 import "server-only";
 import { BN } from "@anchor-lang/core";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import {
   type Connection,
   type Keypair,
   PublicKey,
   SystemProgram,
   Transaction,
+  TransactionInstruction,
   VersionedTransaction,
 } from "@solana/web3.js";
-import { PROGRAM_ID } from "@/lib/anchor/constants";
+import { PROGRAM_ID, receiptClosableAt } from "@/lib/anchor/constants";
 import { type FailureReason, mapTransactionError, type MappedError } from "@/lib/anchor/errors";
-import { merchantAllowlistPda, merchantTokenAccount, receiptPda, vaultAddress } from "@/lib/anchor/pda";
+import {
+  merchantAllowlistPda,
+  merchantLimitPda,
+  merchantTokenAccount,
+  receiptPda,
+  spendingRulesPda,
+  tokenProgramForPolicy,
+  vaultAddress,
+} from "@/lib/anchor/pda";
 import type { AgentPaymentFirewallProgram } from "@/lib/anchor/program";
 import { computeRequestHash, newRequestId } from "@/lib/anchor/requestHash";
 import { bytesToHex, hexToBytes } from "@/lib/encoding/hex";
@@ -20,6 +28,7 @@ import { explorerTxUrl } from "@/lib/solana/explorer";
 import type { Evidence, PaymentStatus } from "@/lib/validation/common";
 import type { PrepareRequest, SubmitRequest } from "@/lib/validation/payments";
 import { checkPolicyServed } from "./access";
+import { type AgentKey, AgentSignerError, MEMO_PROGRAM_ID, signAgentTransaction } from "./agentSigner";
 
 // Payment preparation, submission and status (docs/06 §3.4–3.6, docs/11 §6).
 // Invariants:
@@ -47,8 +56,8 @@ export type PaymentRpc = Pick<
 export interface PaymentDeps {
   rpc: PaymentRpc;
   program: AgentPaymentFirewallProgram;
-  /** Server agent keypair, or null when not configured. */
-  agent: Keypair | null;
+  /** Server agent: local keypair or a KMS/MPC signer (F-04); null when not configured. */
+  agent: AgentKey | null;
   /**
    * Optional separate fee payer (T-M4-19). Pays the transaction fee only; the agent still signs
    * `execute_payment` and pays the receipt rent. Defaults to the agent.
@@ -143,6 +152,8 @@ interface PaymentFields {
   policy: PublicKey;
   merchant: PublicKey;
   mint: PublicKey;
+  /** Classic SPL Token or Token-2022 (F-05), from the policy's vault. Not part of the hash. */
+  tokenProgram: PublicKey;
   amount: bigint;
   requestId: Uint8Array;
   expiresAt: bigint;
@@ -152,8 +163,10 @@ interface PaymentFields {
 function accountsFor(f: PaymentFields) {
   return {
     merchantAllowlist: merchantAllowlistPda(f.policy, f.merchant)[0],
-    vault: vaultAddress(f.policy, f.mint),
-    merchantTokenAccount: merchantTokenAccount(f.merchant, f.mint),
+    spendingRules: spendingRulesPda(f.policy)[0],
+    merchantLimit: merchantLimitPda(f.policy, f.merchant)[0],
+    vault: vaultAddress(f.policy, f.mint, f.tokenProgram),
+    merchantTokenAccount: merchantTokenAccount(f.merchant, f.mint, f.tokenProgram),
     receipt: receiptPda(f.policy, f.requestHash)[0],
   };
 }
@@ -174,7 +187,7 @@ function describe(f: PaymentFields): PreparedPayment {
   };
 }
 
-async function buildTransaction(deps: PaymentDeps, agent: Keypair, f: PaymentFields) {
+async function buildTransaction(deps: PaymentDeps, agent: AgentKey, f: PaymentFields) {
   const a = accountsFor(f);
   const ix = await deps.program.methods
     .executePayment(
@@ -188,11 +201,13 @@ async function buildTransaction(deps: PaymentDeps, agent: Keypair, f: PaymentFie
       policy: f.policy,
       merchant: f.merchant,
       merchantAllowlist: a.merchantAllowlist,
+      spendingRules: a.spendingRules,
+      merchantLimit: a.merchantLimit,
       mint: f.mint,
       vault: a.vault,
       merchantTokenAccount: a.merchantTokenAccount,
       receipt: a.receipt,
-      tokenProgram: TOKEN_PROGRAM_ID,
+      tokenProgram: f.tokenProgram,
       systemProgram: SystemProgram.programId,
     })
     .instruction();
@@ -251,7 +266,7 @@ async function clusterNow(deps: PaymentDeps): Promise<bigint> {
   return BigInt(unixTime);
 }
 
-function requireAgent(deps: PaymentDeps): Keypair {
+function requireAgent(deps: PaymentDeps): AgentKey {
   if (!deps.agent) throw new PaymentServiceError(503, "CONFIG_ERROR", "agent key is not configured");
   return deps.agent;
 }
@@ -270,6 +285,7 @@ export async function preparePayment(deps: PaymentDeps, input: PrepareRequest): 
     policy: policyAddress,
     merchant: toPubkey(input.merchant),
     mint: policy.mint,
+    tokenProgram: tokenProgramForPolicy(policyAddress, policy.mint, policy.vault),
     amount: BigInt(input.amount),
     requestId,
     expiresAt: now + BigInt(input.expiresInSeconds),
@@ -294,6 +310,66 @@ export async function preparePayment(deps: PaymentDeps, input: PrepareRequest): 
     preparedPayment: prepared,
     simulation: { ok: true, unitsConsumed: sim.unitsConsumed, logs: sim.logs },
   };
+}
+
+// ---------------------------------------------------------------------------- sponsored (x402)
+
+/**
+ * Mint of a policy this server serves (same access checks as prepare: served policy, owner
+ * session when required). Used by the x402 client to pick a matching requirement.
+ */
+export async function servedPolicyMint(deps: PaymentDeps, policy: string): Promise<string> {
+  requireAgent(deps);
+  return (await resolveServedPolicy(deps, toPubkey(policy))).mint.toBase58();
+}
+
+export interface SponsoredPayment {
+  /** Base64 of the agent-signed transaction; the sponsor's fee-payer signature is missing. */
+  transactionBase64: string;
+  preparedPayment: PreparedPayment;
+}
+
+/**
+ * F-01 x402 `exact` on Solana (docs/14 design B): the same policy checks and simulation as
+ * `preparePayment`, then a transaction whose fee payer is the external SPONSOR (facilitator or
+ * merchant) with one Memo instruction, signed by the agent only. The sponsor is never in any
+ * instruction (it only pays the fee), and the agent still pays the receipt rent.
+ * Returns the normal failure result when the policy rejects the payment (nothing is signed).
+ */
+export async function prepareSponsoredPayment(
+  deps: PaymentDeps,
+  input: PrepareRequest,
+  sponsor: { feePayer: PublicKey; memo: string; recentBlockhash?: string },
+): Promise<{ ok: true; payment: SponsoredPayment } | { ok: false; result: PaymentResult }> {
+  if (Buffer.byteLength(sponsor.memo, "utf8") > 256) {
+    throw new PaymentServiceError(400, "VALIDATION_ERROR", "memo longer than 256 bytes");
+  }
+  const agent = requireAgent(deps);
+  if (sponsor.feePayer.equals(agent.publicKey)) {
+    throw new PaymentServiceError(400, "VALIDATION_ERROR", "sponsor fee payer must not be the agent");
+  }
+  const result = await preparePayment(deps, input);
+  if (result.status !== "READY_TO_SIGN" || !result.preparedPayment) return { ok: false, result };
+  const pp = result.preparedPayment;
+  const policy = toPubkey(pp.policy);
+  const mint = toPubkey(pp.mint);
+  const full: PaymentFields = {
+    policy,
+    merchant: toPubkey(pp.merchant),
+    mint,
+    tokenProgram: tokenProgramForPolicy(policy, mint, toPubkey(pp.vault)),
+    amount: BigInt(pp.amount),
+    requestId: hexToBytes(pp.requestId, 16),
+    expiresAt: BigInt(pp.expiresAt),
+    requestHash: hexToBytes(pp.requestHash, 32),
+  };
+  const { tx } = await buildTransaction(deps, agent, full);
+  tx.feePayer = sponsor.feePayer;
+  if (sponsor.recentBlockhash) tx.recentBlockhash = sponsor.recentBlockhash;
+  tx.add(new TransactionInstruction({ programId: MEMO_PROGRAM_ID, keys: [], data: Buffer.from(sponsor.memo, "utf8") }));
+  await signAgentTransaction(tx, agent, sponsor.feePayer);
+  const raw = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
+  return { ok: true, payment: { transactionBase64: Buffer.from(raw).toString("base64"), preparedPayment: pp } };
 }
 
 // ---------------------------------------------------------------------------- submit
@@ -348,6 +424,7 @@ export async function submitPayment(deps: PaymentDeps, input: SubmitRequest): Pr
     policy: policyAddress,
     merchant: toPubkey(input.merchant),
     mint: policy.mint,
+    tokenProgram: tokenProgramForPolicy(policyAddress, policy.mint, policy.vault),
     amount: BigInt(input.amount),
     requestId: hexToBytes(input.requestId, 16),
     expiresAt: BigInt(input.expiresAt),
@@ -375,9 +452,21 @@ export async function submitPayment(deps: PaymentDeps, input: SubmitRequest): Pr
     }
   }
 
-  // Fee payer first (it is account 0), then the agent. Same key when no separate fee payer.
-  const feePayer = deps.feePayer ?? agent;
-  tx.sign(...(feePayer.publicKey.equals(agent.publicKey) ? [agent] : [feePayer, agent]));
+  // Pre-sign guard, then fee payer (account 0) and agent signatures (F-04 signer interface).
+  try {
+    await signAgentTransaction(tx, agent, deps.feePayer ?? null);
+  } catch (e) {
+    if (e instanceof AgentSignerError) {
+      return {
+        httpStatus: 502,
+        status: "FAILED",
+        reason: "UNKNOWN_ERROR",
+        message: `agent signer refused: ${e.message}`,
+        preparedPayment: prepared,
+      };
+    }
+    throw e;
+  }
   let signature: string;
   try {
     // Already simulated above (or deliberately forced in demo mode).
@@ -458,6 +547,10 @@ export interface PaymentStatusResult {
     agent: string;
     amount: string;
     requestHash: string;
+    /** Cluster time of execution (PaymentExecuted.timestamp). */
+    createdAt: number;
+    /** F-02: the receipt was closed after its grace period (rent refunded); still CONFIRMED. */
+    receiptClosed: boolean;
   } | null;
 }
 
@@ -505,6 +598,8 @@ export async function getPaymentStatus(deps: PaymentDeps, signature: string): Pr
         agent: d.agent.toString(),
         amount: d.amount.toString(),
         requestHash: bytesToHex(Uint8Array.from(d.requestHash as number[])),
+        createdAt: Number(d.timestamp.toString()),
+        receiptClosed: false,
       };
       break;
     }
@@ -514,6 +609,19 @@ export async function getPaymentStatus(deps: PaymentDeps, signature: string): Pr
     // Same rule as submit: a payment is CONFIRMED only if its receipt account exists.
     const receiptInfo = await deps.rpc.getAccountInfo(new PublicKey(payment.receipt), "confirmed");
     if (!receiptInfo || !receiptInfo.owner.equals(PROGRAM_ID)) {
+      // F-02: a receipt may be closed (rent refunded) once its request can no longer execute.
+      // The tx succeeded and the receipt existed then; only before the grace period is a
+      // missing receipt an anomaly.
+      if (Number(await clusterNow(deps)) >= receiptClosableAt(payment.createdAt)) {
+        return {
+          ...base,
+          httpStatus: 200,
+          status: "CONFIRMED",
+          blockTime,
+          error: null,
+          payment: { ...payment, receiptClosed: true },
+        };
+      }
       return {
         ...base,
         httpStatus: 200,

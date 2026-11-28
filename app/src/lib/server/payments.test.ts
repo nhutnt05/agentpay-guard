@@ -2,7 +2,8 @@ import { BN } from "@anchor-lang/core";
 import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PROGRAM_ID } from "@/lib/anchor/constants";
-import { policyPda, receiptPda } from "@/lib/anchor/pda";
+import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { merchantTokenAccount, policyPda, receiptPda, vaultAddress } from "@/lib/anchor/pda";
 import { getReadonlyProgram } from "@/lib/anchor/program";
 import { hexToBytes } from "@/lib/encoding/hex";
 import { PrepareRequestSchema, SubmitRequestSchema } from "@/lib/validation/payments";
@@ -27,12 +28,12 @@ const program = getReadonlyProgram(new Connection("http://127.0.0.1:1"), agent.p
 const BLOCKHASH = new PublicKey(new Uint8Array(32).fill(3)).toBase58();
 const SIGNATURE = "5uCXVGHUYpCgPBW4qJfyKsaUGov3E12avRn6YzBFQa7CTGPnV1fEAAUgfisvBjHvDQzC31Gdrn6sChPFGSz3Jih8";
 
-async function policyAccountData(agentKey: PublicKey = agent.publicKey) {
+async function policyAccountData(agentKey: PublicKey = agent.publicKey, tokenProgram: PublicKey = TOKEN_PROGRAM_ID) {
   return program.coder.accounts.encode("agentPolicy", {
     owner,
     agent: agentKey,
     mint,
-    vault: PublicKey.default,
+    vault: vaultAddress(policy, mint, tokenProgram),
     policyId: Array(32).fill(7),
     maxPerTx: new BN(10_000_000),
     dailyLimit: new BN(20_000_000),
@@ -317,6 +318,21 @@ describe("owner session (T-M4-16)", () => {
     const { rpc } = fakeRpc({ policyData });
     const r = await preparePayment(deps(rpc, { ownerSession: { required: false, wallet: null } }), prepareInput());
     expect(r.status).toBe("READY_TO_SIGN");
+  });
+});
+
+describe("Token-2022 policy (F-05)", () => {
+  it("builds execute_payment with the Token-2022 program and Token-2022 ATAs", async () => {
+    const data = await policyAccountData(agent.publicKey, TOKEN_2022_PROGRAM_ID);
+    const { rpc, sent } = fakeRpc({ policyData: data, receiptExists: () => sent.length > 0 });
+    const d = deps(rpc);
+    const r = await submitPayment(d, submitInput(await prepared(d)));
+    expect(r.status).toBe("CONFIRMED");
+    const keys = Transaction.from(sent[0]).instructions[0].keys.map((k) => k.pubkey.toBase58());
+    expect(keys).toContain(TOKEN_2022_PROGRAM_ID.toBase58());
+    expect(keys).not.toContain(TOKEN_PROGRAM_ID.toBase58());
+    expect(keys).toContain(vaultAddress(policy, mint, TOKEN_2022_PROGRAM_ID).toBase58());
+    expect(keys).toContain(merchantTokenAccount(merchant, mint, TOKEN_2022_PROGRAM_ID).toBase58());
   });
 });
 

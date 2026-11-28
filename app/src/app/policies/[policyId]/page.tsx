@@ -4,8 +4,7 @@
  */
 
 import { Metadata } from 'next';
-import { PolicyDetails } from '@/components/policy/PolicyDetails';
-import { Navigation } from '@/components/ui/Navigation';
+import { PolicyDetailsPageClient } from '@/components/policy/PolicyDetailsPageClient';
 
 export const metadata: Metadata = {
   title: 'Policy Details | AgentPay Guard',
@@ -19,12 +18,5 @@ interface PolicyDetailsPageProps {
 export default async function PolicyDetailsPage({ params }: PolicyDetailsPageProps) {
   const { policyId } = await params;
 
-  return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-b from-gray-950 to-gray-900">
-      <Navigation />
-      <main className="flex-1">
-        <PolicyDetails policyAddress={policyId} />
-      </main>
-    </div>
-  );
+  return <PolicyDetailsPageClient policyId={policyId} />;
 }

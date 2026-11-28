@@ -7,25 +7,38 @@ import idl from "./idl/agent_payment_firewall.json";
 /** Program id, taken from the synced IDL (the IDL address is validated by scripts/sync-idl.mjs). */
 export const PROGRAM_ID = new PublicKey(idl.address);
 
-/** SPL Token mint for demo (from NEXT_PUBLIC_DEMO_MINT env variable) */
+/** SPL Token mint for demo (from NEXT_PUBLIC_DEMO_MINT env variable, defaults to wrapped SOL) */
+const demoMint = process.env.NEXT_PUBLIC_DEMO_MINT?.trim();
+const isValidMint = demoMint && demoMint.length > 0 && !demoMint.startsWith('<');
 export const MINT = new PublicKey(
-  process.env.NEXT_PUBLIC_DEMO_MINT || "So11111111111111111111111111111111111111112"
+  isValidMint
+    ? demoMint
+    : "So11111111111111111111111111111111111111112" // Wrapped SOL
 );
 
-/** Mint decimals (default 6 for test USDC, 9 for wrapped SOL) */
-export const MINT_DECIMALS = 6;
+/** Mint decimals (default 9 for wrapped SOL, should match actual mint) */
+export const MINT_DECIMALS = isValidMint ? 6 : 9;
 
 const ascii = (s: string) => new TextEncoder().encode(s);
 
 export const SEED_POLICY = ascii("policy");
 export const SEED_MERCHANT = ascii("merchant");
 export const SEED_RECEIPT = ascii("receipt");
+/** F-03 optional rule accounts. */
+export const SEED_RULES = ascii("rules");
+export const SEED_MERCHANT_LIMIT = ascii("merchant_limit");
 
 /** Domain separator of the canonical request hash (docs/11 §3). 25 bytes. */
 export const REQUEST_HASH_DOMAIN = ascii("AGENTPAY_GUARD_PAYMENT_V1");
 
 export const SECONDS_PER_DAY = 86_400;
 export const MAX_REQUEST_TTL_SECONDS = 600;
+/** F-02: wait after the latest possible request expiry before a receipt may be closed. */
+export const RECEIPT_CLOSE_GRACE_SECONDS = 86_400;
+
+/** Earliest unix time at which a receipt created at `createdAt` may be closed (F-02). */
+export const receiptClosableAt = (createdAt: number) =>
+  createdAt + MAX_REQUEST_TTL_SECONDS + RECEIPT_CLOSE_GRACE_SECONDS;
 
 export const U64_MAX = 18_446_744_073_709_551_615n;
 export const I64_MIN = -9_223_372_036_854_775_808n;

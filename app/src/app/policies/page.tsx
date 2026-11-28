@@ -4,8 +4,7 @@
  */
 
 import { Metadata } from 'next';
-import { PoliciesDashboard } from '@/components/policy/PoliciesDashboard';
-import { Navigation } from '@/components/ui/Navigation';
+import { PoliciesPageClient } from '@/components/policy/PoliciesPageClient';
 
 export const metadata: Metadata = {
   title: 'My Policies | AgentPay Guard',
@@ -13,12 +12,5 @@ export const metadata: Metadata = {
 };
 
 export default function PoliciesPage() {
-  return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-b from-gray-950 to-gray-900">
-      <Navigation />
-      <main className="flex-1">
-        <PoliciesDashboard />
-      </main>
-    </div>
-  );
+  return <PoliciesPageClient />;
 }

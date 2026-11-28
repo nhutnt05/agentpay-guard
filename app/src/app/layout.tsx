@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { WalletProviders } from "@/components/wallet/WalletProviders";
 import { APP_NAME, APP_TAGLINE } from "@/config/app";
-import { WalletProviders } from "@/components/wallet/WalletProviders";
 import "./globals.css";
 
 const geistSans = Geist({

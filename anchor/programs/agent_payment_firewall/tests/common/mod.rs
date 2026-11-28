@@ -8,7 +8,7 @@ use {
         events::PaymentExecuted,
         state::{AgentPolicy, MerchantAllowlist, PaymentReceipt},
         utils::compute_request_hash,
-        SEED_MERCHANT, SEED_POLICY, SEED_RECEIPT,
+        SEED_MERCHANT, SEED_MERCHANT_LIMIT, SEED_POLICY, SEED_RECEIPT, SEED_RULES,
     },
     anchor_lang::{
         prelude::{Clock, Pubkey},
@@ -289,6 +289,30 @@ pub fn initialize_policy_ix(
     max_per_tx: u64,
     daily_limit: u64,
 ) -> Instruction {
+    initialize_policy_ix_full(
+        owner,
+        mint,
+        policy_id,
+        agent,
+        max_per_tx,
+        daily_limit,
+        false,
+        &TOKEN_PROGRAM_ID,
+    )
+}
+
+/// F-05: explicit `accept_issuer_powers` and token program (classic or Token-2022).
+#[allow(clippy::too_many_arguments)]
+pub fn initialize_policy_ix_full(
+    owner: &Pubkey,
+    mint: &Pubkey,
+    policy_id: [u8; 32],
+    agent: Pubkey,
+    max_per_tx: u64,
+    daily_limit: u64,
+    accept_issuer_powers: bool,
+    token_program: &Pubkey,
+) -> Instruction {
     let (policy, _) = policy_pda(owner, &policy_id);
     Instruction::new_with_bytes(
         program_id(),
@@ -297,14 +321,19 @@ pub fn initialize_policy_ix(
             agent,
             max_per_tx,
             daily_limit,
+            accept_issuer_powers,
         }
         .data(),
         agent_payment_firewall::accounts::InitializePolicy {
             owner: *owner,
             policy,
             mint: *mint,
-            vault: vault_address(&policy, mint),
-            token_program: TOKEN_PROGRAM_ID,
+            vault: spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
+                &policy,
+                mint,
+                token_program,
+            ),
+            token_program: *token_program,
             associated_token_program: ATA_PROGRAM_ID,
             system_program: anchor_lang::solana_program::system_program::ID,
         }
@@ -538,6 +567,8 @@ pub fn execute_payment_ix(accounts: &PaymentAccounts, req: &PaymentRequest) -> I
             policy: accounts.policy,
             merchant: accounts.merchant,
             merchant_allowlist: accounts.merchant_allowlist,
+            spending_rules: rules_pda(&accounts.policy).0,
+            merchant_limit: merchant_limit_pda(&accounts.policy, &accounts.merchant).0,
             mint: accounts.mint,
             vault: accounts.vault,
             merchant_token_account: accounts.merchant_token_account,
@@ -546,6 +577,18 @@ pub fn execute_payment_ix(accounts: &PaymentAccounts, req: &PaymentRequest) -> I
             system_program: anchor_lang::solana_program::system_program::ID,
         }
         .to_account_metas(None),
+    )
+}
+
+/// F-03 PDAs (always passed to execute_payment; enforced only if they exist).
+pub fn rules_pda(policy: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[SEED_RULES, policy.as_ref()], &program_id())
+}
+
+pub fn merchant_limit_pda(policy: &Pubkey, merchant: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[SEED_MERCHANT_LIMIT, policy.as_ref(), merchant.as_ref()],
+        &program_id(),
     )
 }
 
@@ -603,6 +646,26 @@ pub fn update_policy_ix(
         agent_payment_firewall::accounts::UpdatePolicy {
             owner: *signer,
             policy: *policy,
+        }
+        .to_account_metas(None),
+    )
+}
+
+/// F-02: `close_receipt` with explicit accounts (overridable for negative tests).
+pub fn close_receipt_ix(
+    closer: &Pubkey,
+    policy: &Pubkey,
+    receipt: &Pubkey,
+    rent_destination: &Pubkey,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        program_id(),
+        &agent_payment_firewall::instruction::CloseReceipt {}.data(),
+        agent_payment_firewall::accounts::CloseReceipt {
+            closer: *closer,
+            policy: *policy,
+            receipt: *receipt,
+            rent_destination: *rent_destination,
         }
         .to_account_metas(None),
     )

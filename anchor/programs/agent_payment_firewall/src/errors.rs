@@ -48,6 +48,24 @@ pub enum AgentPayError {
     EmptyUpdate, // 6020
     #[msg("Merchant must not be default, the policy, the vault, or the agent")]
     InvalidMerchant, // 6021
+    #[msg("Only the policy owner or the receipt agent may close a receipt")]
+    UnauthorizedCloser, // 6022
+    #[msg("Rent must be refunded to the agent that paid the receipt")]
+    InvalidRentDestination, // 6023
+    #[msg("Receipt cannot be closed before its request expiry plus the grace period")]
+    ReceiptNotExpired, // 6024
+    #[msg("Mint uses a Token-2022 extension that is not supported, or is not inert")]
+    UnsupportedMintExtension, // 6025
+    #[msg("Mint has issuer powers (permanent delegate); the owner must accept them explicitly")]
+    IssuerPowersNotAccepted, // 6026
+    #[msg("Token program does not match the mint's owner program")]
+    InvalidTokenProgram, // 6027
+    #[msg("Amount exceeds the rolling 24-hour limit")]
+    ExceedsRollingLimit, // 6028
+    #[msg("Amount exceeds this merchant's per-transaction limit")]
+    ExceedsMerchantMaxPerTx, // 6029
+    #[msg("Amount exceeds this merchant's daily limit")]
+    ExceedsMerchantDailyLimit, // 6030
 }
 
 #[cfg(test)]
@@ -66,5 +84,11 @@ mod tests {
         assert_eq!(code(AgentPayError::InvalidPolicyLimits), 6015);
         assert_eq!(code(AgentPayError::InvalidAgent), 6016);
         assert_eq!(code(AgentPayError::InvalidMerchant), 6021);
+        assert_eq!(code(AgentPayError::UnauthorizedCloser), 6022);
+        assert_eq!(code(AgentPayError::ReceiptNotExpired), 6024);
+        assert_eq!(code(AgentPayError::UnsupportedMintExtension), 6025);
+        assert_eq!(code(AgentPayError::InvalidTokenProgram), 6027);
+        assert_eq!(code(AgentPayError::ExceedsRollingLimit), 6028);
+        assert_eq!(code(AgentPayError::ExceedsMerchantDailyLimit), 6030);
     }
 }

@@ -1,5 +1,12 @@
+/**
+ * Hook for sending owner transactions with the connected wallet (sign, send, confirm).
+ *
+ * Merge of `main` and `frontend`: `sendTransaction(tx)` (dashboard) and `send(instruction)`
+ * (policy pages) share one state: `loading`, `error`, `signature`, `reset`.
+ */
+
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import type { Transaction, TransactionSignature } from "@solana/web3.js";
+import { Transaction, type TransactionInstruction, type TransactionSignature } from "@solana/web3.js";
 import { useState } from "react";
 
 export interface SendTransactionState {
@@ -9,7 +16,10 @@ export interface SendTransactionState {
 }
 
 export interface SendTransactionResult extends SendTransactionState {
+  /** Signs and sends `tx`; resolves to the signature once confirmed, or null on error. */
   sendTransaction: (tx: Transaction) => Promise<TransactionSignature | null>;
+  /** Policy-pages variant: one instruction → `{ signature, confirmed }` or null on error. */
+  send: (instruction: TransactionInstruction) => Promise<{ signature: TransactionSignature; confirmed: boolean } | null>;
   reset: () => void;
 }
 
@@ -31,24 +41,17 @@ export function useSendTransaction(): SendTransactionResult {
     setState({ loading: true, error: null, signature: null });
 
     try {
-      // Get recent blockhash
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
       tx.recentBlockhash = blockhash;
       tx.feePayer = publicKey;
 
-      // Send transaction
+      // The wallet signs; the app never sees the owner key.
       const signature = await walletSendTransaction(tx, connection);
 
-      // Confirm transaction
       const confirmation = await connection.confirmTransaction(
-        {
-          signature,
-          blockhash,
-          lastValidBlockHeight,
-        },
-        "confirmed"
+        { signature, blockhash, lastValidBlockHeight },
+        "confirmed",
       );
-
       if (confirmation.value.err) {
         throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
       }
@@ -62,6 +65,11 @@ export function useSendTransaction(): SendTransactionResult {
     }
   };
 
+  const send = async (instruction: TransactionInstruction) => {
+    const signature = await sendTransaction(new Transaction().add(instruction));
+    return signature ? { signature, confirmed: true } : null;
+  };
+
   const reset = () => {
     setState({ loading: false, error: null, signature: null });
   };
@@ -69,6 +77,7 @@ export function useSendTransaction(): SendTransactionResult {
   return {
     ...state,
     sendTransaction,
+    send,
     reset,
   };
 }

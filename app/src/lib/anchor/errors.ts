@@ -18,7 +18,10 @@ export type FailureReason =
   | "INVALID_AMOUNT"
   | "EXCEEDS_MAX_PER_TX"
   | "EXCEEDS_DAILY_LIMIT"
+  | "EXCEEDS_ROLLING_LIMIT"
+  | "EXCEEDS_MERCHANT_LIMIT"
   | "INSUFFICIENT_VAULT_BALANCE"
+  | "UNSUPPORTED_MINT"
   | "INVALID_REQUEST_HASH"
   | "REQUEST_EXPIRED"
   | "DUPLICATE_REQUEST"
@@ -63,6 +66,17 @@ const PROGRAM_ERROR_REASONS: Record<AgentPaymentFirewallErrorName, FailureReason
   InvalidWithdrawDestination: "INVALID_OWNER_ACTION",
   EmptyUpdate: "INVALID_OWNER_ACTION",
   InvalidMerchant: "INVALID_OWNER_ACTION",
+  UnauthorizedCloser: "INVALID_OWNER_ACTION",
+  InvalidRentDestination: "INVALID_OWNER_ACTION",
+  ReceiptNotExpired: "INVALID_OWNER_ACTION",
+  // F-05: Token-2022 transfer hook set or transfer fee raised by the issuer → policy refusal.
+  UnsupportedMintExtension: "UNSUPPORTED_MINT",
+  IssuerPowersNotAccepted: "INVALID_OWNER_ACTION",
+  InvalidTokenProgram: "INVALID_ACCOUNTS",
+  // F-03 optional rule accounts.
+  ExceedsRollingLimit: "EXCEEDS_ROLLING_LIMIT",
+  ExceedsMerchantMaxPerTx: "EXCEEDS_MERCHANT_LIMIT",
+  ExceedsMerchantDailyLimit: "EXCEEDS_MERCHANT_LIMIT",
 };
 
 const NAME_BY_CODE = new Map<number, AgentPaymentFirewallErrorName>(

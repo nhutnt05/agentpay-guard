@@ -1,8 +1,8 @@
 import "server-only";
-import { getMint } from "@solana/spl-token";
 import type { PublicKey } from "@solana/web3.js";
 import { PROGRAM_ID } from "@/lib/anchor/constants";
-import { merchantTokenAccount } from "@/lib/anchor/pda";
+import { merchantTokenAccount, tokenProgramForPolicy } from "@/lib/anchor/pda";
+import { getMintAnyProgram } from "@/lib/solana/mint";
 import { loadPolicy } from "@/lib/policy/read";
 import { getPaymentDeps } from "@/lib/server/paymentDeps";
 import { preparePayment, submitPayment } from "@/lib/server/payments";
@@ -31,13 +31,15 @@ export function getDemoDeps(request?: Request): DemoDeps {
     attackerWallet: process.env.DEMO_ATTACKER_WALLET,
     maliciousUrl: process.env.DEMO_MALICIOUS_URL,
     scrape: firecrawlScrape,
-    getDecimals: async (policy) => (await getMint(connection, (await policyOrThrow(policy)).mint, "confirmed")).decimals,
+    getDecimals: async (policy) => (await getMintAnyProgram(connection, (await policyOrThrow(policy)).mint)).decimals,
     readState: async (policy, attacker): Promise<DemoState> => {
       const p = await policyOrThrow(policy);
       return {
         vaultBalance: await tokenBalance(p.vault),
         spentToday: p.spentToday.toString(),
-        attackerBalance: await tokenBalance(merchantTokenAccount(attacker, p.mint)),
+        attackerBalance: await tokenBalance(
+          merchantTokenAccount(attacker, p.mint, tokenProgramForPolicy(policy, p.mint, p.vault)),
+        ),
       };
     },
     receiptExists: async (receipt) => {

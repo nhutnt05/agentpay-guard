@@ -387,7 +387,8 @@ fn ep09_wrong_mint_rejected() {
     assert_rejected(&env, &before, &req, res, custom(AgentPayError::InvalidMint));
 }
 
-/// EP-10: Token-2022 program id in the `token_program` slot.
+/// EP-10: Token-2022 program id in the `token_program` slot for a classic mint
+/// (F-05: rejected by the mint-owner constraint, `InvalidTokenProgram`).
 #[test]
 fn ep10_wrong_token_program_rejected() {
     let mut env = payment_env();
@@ -407,7 +408,7 @@ fn ep10_wrong_token_program_rejected() {
         &before,
         &req,
         res,
-        framework(AnchorErrorCode::InvalidProgramId),
+        custom(AgentPayError::InvalidTokenProgram),
     );
 }
 

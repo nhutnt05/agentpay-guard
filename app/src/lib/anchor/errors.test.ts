@@ -80,6 +80,12 @@ describe("mapTransactionError (API-02)", () => {
     [6012, "REQUEST_EXPIRED"],
     [6013, "REQUEST_EXPIRED"],
     [6014, "ARITHMETIC_OVERFLOW"],
+    [6024, "INVALID_OWNER_ACTION"], // F-02 ReceiptNotExpired
+    [6025, "UNSUPPORTED_MINT"], // F-05 UnsupportedMintExtension
+    [6027, "INVALID_ACCOUNTS"], // F-05 InvalidTokenProgram
+    [6028, "EXCEEDS_ROLLING_LIMIT"], // F-03
+    [6029, "EXCEEDS_MERCHANT_LIMIT"], // F-03
+    [6030, "EXCEEDS_MERCHANT_LIMIT"], // F-03
   ])("program error %i → %s", (code, reason) => {
     expect(mapTransactionError(custom(code), [])).toMatchObject({ status: "REJECTED", reason, code });
   });

@@ -21,7 +21,16 @@ export const AgentPaymentFirewallErrorCode = {
   PolicyNotPaused: 6018,
   InvalidWithdrawDestination: 6019,
   EmptyUpdate: 6020,
-  InvalidMerchant: 6021
+  InvalidMerchant: 6021,
+  UnauthorizedCloser: 6022,
+  InvalidRentDestination: 6023,
+  ReceiptNotExpired: 6024,
+  UnsupportedMintExtension: 6025,
+  IssuerPowersNotAccepted: 6026,
+  InvalidTokenProgram: 6027,
+  ExceedsRollingLimit: 6028,
+  ExceedsMerchantMaxPerTx: 6029,
+  ExceedsMerchantDailyLimit: 6030
 };
 
 export type AgentPaymentFirewallErrorName = keyof typeof AgentPaymentFirewallErrorCode;

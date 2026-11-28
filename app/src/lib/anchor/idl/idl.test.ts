@@ -38,18 +38,25 @@ describe("synced Anchor IDL", () => {
     expect(idl.metadata.name).toBe("agent_payment_firewall");
     expect(idl.instructions.map((i) => i.name).sort()).toEqual([
       "add_merchant",
+      "close_merchant_limit",
+      "close_receipt",
+      "close_spending_rules",
       "execute_payment",
       "initialize_policy",
       "pause_policy",
       "remove_merchant",
       "resume_policy",
+      "set_merchant_limit",
+      "set_spending_rules",
       "update_policy",
       "withdraw",
     ]);
     expect(idl.accounts.map((a) => a.name).sort()).toEqual([
       "AgentPolicy",
       "MerchantAllowlist",
+      "MerchantLimit",
       "PaymentReceipt",
+      "SpendingRules",
     ]);
   });
 

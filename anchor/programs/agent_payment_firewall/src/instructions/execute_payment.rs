@@ -1,15 +1,16 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
-    associated_token::get_associated_token_address,
-    token::{self, Mint, Token, TokenAccount, TransferChecked},
+    associated_token::get_associated_token_address_with_program_id,
+    token_interface::{self, Mint, TokenAccount, TokenInterface, TransferChecked},
 };
 
 use crate::{
     constants::*,
     errors::AgentPayError,
     events::PaymentExecuted,
-    state::{AgentPolicy, MerchantAllowlist, PaymentReceipt},
-    utils::{apply_daily_spend, compute_request_hash},
+    state::{AgentPolicy, MerchantAllowlist, MerchantLimit, PaymentReceipt, SpendingRules},
+    token_policy::check_mint_at_payment,
+    utils::{apply_daily_spend, apply_daily_spend_or, apply_rolling_spend, compute_request_hash},
 };
 
 /// Agent pays an allowlisted merchant from the policy vault (docs/05 §4).
@@ -51,8 +52,21 @@ pub struct ExecutePayment<'info> {
     )]
     pub merchant_allowlist: Account<'info, MerchantAllowlist>,
 
-    /// 5. Classic SPL mint (owner check rejects Token-2022); equality via `has_one = mint`.
-    pub mint: Account<'info, Mint>,
+    /// CHECK: (F-03) Rolling-limit rules of this policy. Always passed (seed-derived, so the
+    /// agent cannot substitute or omit it); enforced only if it exists, i.e. is owned by this
+    /// program. Only this program can make the PDA program-owned, and sending lamports to the
+    /// address does not change that, so nobody can turn a rule on or off except the owner.
+    #[account(mut, seeds = [SEED_RULES, policy.key().as_ref()], bump)]
+    pub spending_rules: UncheckedAccount<'info>,
+
+    /// CHECK: (F-03) Per-merchant limits; same existence rule as `spending_rules`.
+    #[account(mut, seeds = [SEED_MERCHANT_LIMIT, policy.key().as_ref(), merchant.key().as_ref()], bump)]
+    pub merchant_limit: UncheckedAccount<'info>,
+
+    /// 5. Classic SPL or Token-2022 mint (F-05); equality via `has_one = mint`. The token
+    ///    program check sits here so a wrong program fails before the ATA derivations below.
+    #[account(constraint = *mint.to_account_info().owner == token_program.key() @ AgentPayError::InvalidTokenProgram)]
+    pub mint: InterfaceAccount<'info, Mint>,
 
     /// 6. Vault ATA; authority must be the policy PDA.
     #[account(
@@ -60,7 +74,7 @@ pub struct ExecutePayment<'info> {
         constraint = vault.mint == mint.key() @ AgentPayError::InvalidVault,
         constraint = vault.owner == policy.key() @ AgentPayError::InvalidVault
     )]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
 
     /// 7. Merchant's ATA for the policy mint (ADR-022: ATA required in MVP).
     #[account(
@@ -70,10 +84,14 @@ pub struct ExecutePayment<'info> {
         constraint = merchant_token_account.mint == mint.key()
             @ AgentPayError::InvalidMerchantTokenAccount,
         constraint = merchant_token_account.key()
-            == get_associated_token_address(&merchant.key(), &mint.key())
+            == get_associated_token_address_with_program_id(
+                &merchant.key(),
+                &mint.key(),
+                &token_program.key()
+            )
             @ AgentPayError::InvalidMerchantTokenAccount
     )]
-    pub merchant_token_account: Account<'info, TokenAccount>,
+    pub merchant_token_account: InterfaceAccount<'info, TokenAccount>,
 
     /// 8. Replay protection: `init` fails if this request hash was already executed.
     #[account(
@@ -85,8 +103,9 @@ pub struct ExecutePayment<'info> {
     )]
     pub receipt: Account<'info, PaymentReceipt>,
 
-    /// 9. Classic SPL Token program only.
-    pub token_program: Program<'info, Token>,
+    /// 9. Token program that owns the mint (classic or Token-2022, F-05).
+    #[account(constraint = token_program.key() == *mint.to_account_info().owner @ AgentPayError::InvalidTokenProgram)]
+    pub token_program: Interface<'info, TokenInterface>,
 
     /// 10.
     pub system_program: Program<'info, System>,
@@ -149,6 +168,45 @@ pub fn handle_execute_payment(
         ctx.accounts.policy.daily_limit,
     )?;
 
+    // 9a. F-03: optional rolling-window and per-merchant limits (checks only; written in 11).
+    let rules = load_rule::<SpendingRules>(&ctx.accounts.spending_rules)?;
+    let rolling = match &rules {
+        Some(r) => {
+            require_keys_eq!(r.policy, policy_key, AgentPayError::InvalidPolicyLimits);
+            Some(apply_rolling_spend(
+                r.buckets,
+                r.current_hour,
+                now,
+                amount,
+                r.rolling_limit,
+            )?)
+        }
+        None => None,
+    };
+    let merchant_limit = load_rule::<MerchantLimit>(&ctx.accounts.merchant_limit)?;
+    let merchant_spend = match &merchant_limit {
+        Some(m) => {
+            require_keys_eq!(m.policy, policy_key, AgentPayError::InvalidPolicyLimits);
+            require_keys_eq!(m.merchant, merchant, AgentPayError::InvalidPolicyLimits);
+            require!(
+                amount <= m.max_per_tx,
+                AgentPayError::ExceedsMerchantMaxPerTx
+            );
+            Some(apply_daily_spend_or(
+                m.spent_today,
+                m.day_index,
+                now,
+                amount,
+                m.daily_limit,
+                AgentPayError::ExceedsMerchantDailyLimit,
+            )?)
+        }
+        None => None,
+    };
+
+    // 9b. F-05: Token-2022 transfer hook still unset and transfer fee still zero.
+    check_mint_at_payment(&ctx.accounts.mint.to_account_info())?;
+
     // 10. Explicit balance check for a clear error (the Token program would also fail).
     require!(
         ctx.accounts.vault.amount >= amount,
@@ -162,6 +220,18 @@ pub fn handle_execute_payment(
     let owner = policy.owner;
     let policy_id = policy.policy_id;
     let policy_bump = policy.bump;
+
+    // 11b. Effects: F-03 rule counters.
+    if let (Some(mut r), Some(next)) = (rules, rolling) {
+        r.buckets = next.buckets;
+        r.current_hour = next.current_hour;
+        store_rule(&ctx.accounts.spending_rules, &r)?;
+    }
+    if let (Some(mut m), Some(next)) = (merchant_limit, merchant_spend) {
+        m.spent_today = next.spent_today;
+        m.day_index = next.day_index;
+        store_rule(&ctx.accounts.merchant_limit, &m)?;
+    }
 
     // 12. Effects: receipt (account was created by the `init` constraint).
     let receipt_key = ctx.accounts.receipt.key();
@@ -189,7 +259,7 @@ pub fn handle_execute_payment(
         to: ctx.accounts.merchant_token_account.to_account_info(),
         authority: ctx.accounts.policy.to_account_info(),
     };
-    token::transfer_checked(
+    token_interface::transfer_checked(
         CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer_seeds),
         amount,
         ctx.accounts.mint.decimals,
@@ -209,4 +279,20 @@ pub fn handle_execute_payment(
         timestamp: now,
     });
     Ok(())
+}
+
+/// F-03: an optional rule account exists iff this program owns it (then it must deserialize,
+/// discriminator included); otherwise there is no rule.
+fn load_rule<T: AccountDeserialize>(info: &AccountInfo) -> Result<Option<T>> {
+    if info.owner != &crate::ID {
+        return Ok(None);
+    }
+    let data = info.try_borrow_data()?;
+    Ok(Some(T::try_deserialize(&mut &data[..])?))
+}
+
+fn store_rule<T: AccountSerialize>(info: &AccountInfo, value: &T) -> Result<()> {
+    let mut data = info.try_borrow_mut_data()?;
+    let mut writer: &mut [u8] = &mut data[..];
+    value.try_serialize(&mut writer)
 }

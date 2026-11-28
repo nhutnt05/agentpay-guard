@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
+use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface, TransferChecked};
 
 use crate::{constants::*, errors::AgentPayError, events::Withdrawn, state::AgentPolicy};
 
@@ -19,15 +19,15 @@ pub struct Withdraw<'info> {
     )]
     pub policy: Account<'info, AgentPolicy>,
 
-    /// Classic SPL mint; equality via `has_one = mint`.
-    pub mint: Account<'info, Mint>,
+    /// Classic SPL or Token-2022 mint; equality via `has_one = mint`.
+    pub mint: InterfaceAccount<'info, Mint>,
 
     #[account(
         mut,
         constraint = vault.mint == mint.key() @ AgentPayError::InvalidVault,
         constraint = vault.owner == policy.key() @ AgentPayError::InvalidVault
     )]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
 
     /// Any token account of the policy mint whose authority is the owner
     /// (ATA not required). Funds can never be routed to a third party.
@@ -36,9 +36,10 @@ pub struct Withdraw<'info> {
         constraint = destination.owner == owner.key() @ AgentPayError::InvalidWithdrawDestination,
         constraint = destination.mint == mint.key() @ AgentPayError::InvalidWithdrawDestination
     )]
-    pub destination: Account<'info, TokenAccount>,
+    pub destination: InterfaceAccount<'info, TokenAccount>,
 
-    pub token_program: Program<'info, Token>,
+    #[account(constraint = token_program.key() == *mint.to_account_info().owner @ AgentPayError::InvalidTokenProgram)]
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 pub fn handle_withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
@@ -59,7 +60,7 @@ pub fn handle_withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
         &[policy.bump],
     ]];
 
-    token::transfer_checked(
+    token_interface::transfer_checked(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.key(),
             TransferChecked {
