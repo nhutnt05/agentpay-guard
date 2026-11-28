@@ -5,6 +5,7 @@ export type ApiErrorCode =
   | "NOT_FOUND"
   | "NOT_A_POLICY"
   | "RATE_LIMITED"
+  | "SIGN_IN_FAILED"
   | "RPC_ERROR"
   | "CONFIG_ERROR"
   | "INTERNAL_ERROR";

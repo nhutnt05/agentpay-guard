@@ -11,8 +11,8 @@ import type { DemoDeps, DemoState } from "./demo";
 import { firecrawlScrape } from "./firecrawl";
 
 /** Production dependencies for the demo route; payments go through the normal service. */
-export function getDemoDeps(): DemoDeps {
-  const payment = getPaymentDeps();
+export function getDemoDeps(request?: Request): DemoDeps {
+  const payment = getPaymentDeps(request);
   const connection = getServerConnection();
 
   const policyOrThrow = async (policy: PublicKey) => {

@@ -2,9 +2,11 @@ import "server-only";
 import type { z } from "zod";
 import { fail } from "@/lib/api/response";
 import { AccessConfigError } from "./access";
+import { AgentKeyConfigError } from "./agentKeypair";
 import { clientIp } from "./guards";
 import { getPaymentDeps } from "./paymentDeps";
 import { type PaymentDeps, type PaymentResult, PaymentServiceError } from "./payments";
+import { SessionConfigError } from "./session";
 import { createRateLimiter } from "./rateLimit";
 
 // Shared plumbing for the POST payment routes: rate limit, JSON + Zod parsing, error mapping.
@@ -47,7 +49,7 @@ export async function handlePaymentPost<S extends z.ZodType>(
   if (!parsed.success) return fail(400, "VALIDATION_ERROR", "invalid request body", parsed.error.issues);
 
   try {
-    return paymentResponse(await run(getPaymentDeps(), parsed.data));
+    return paymentResponse(await run(getPaymentDeps(request), parsed.data));
   } catch (e) {
     if (e instanceof PaymentServiceError) {
       return Response.json(
@@ -56,6 +58,7 @@ export async function handlePaymentPost<S extends z.ZodType>(
       );
     }
     if (e instanceof AccessConfigError) return fail(500, "CONFIG_ERROR", "server access configuration is invalid");
+    if (e instanceof AgentKeyConfigError || e instanceof SessionConfigError) return fail(500, "CONFIG_ERROR", e.message);
     return fail(502, "RPC_ERROR", "payment request failed while talking to the cluster");
   }
 }

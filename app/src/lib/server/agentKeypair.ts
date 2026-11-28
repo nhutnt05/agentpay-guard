@@ -18,8 +18,13 @@ export class AgentKeyConfigError extends Error {
  * base58-encoded 64-byte secret key.
  */
 export function parseAgentSecretKey(raw: string | undefined): Keypair {
+  return parseSecretKey(raw, "AGENT_SECRET_KEY");
+}
+
+/** Same rules for any server-only keypair variable (`name` appears in error messages). */
+export function parseSecretKey(raw: string | undefined, name: string): Keypair {
   const value = raw?.trim();
-  if (!value) throw new AgentKeyConfigError("AGENT_SECRET_KEY is not set");
+  if (!value) throw new AgentKeyConfigError(`${name} is not set`);
 
   let bytes: Uint8Array;
   if (value.startsWith("[")) {
@@ -27,32 +32,32 @@ export function parseAgentSecretKey(raw: string | undefined): Keypair {
     try {
       parsed = JSON.parse(value);
     } catch {
-      throw new AgentKeyConfigError("AGENT_SECRET_KEY is not valid JSON");
+      throw new AgentKeyConfigError(`${name} is not valid JSON`);
     }
     if (
       !Array.isArray(parsed) ||
       !parsed.every((b) => Number.isInteger(b) && b >= 0 && b <= 255)
     ) {
-      throw new AgentKeyConfigError("AGENT_SECRET_KEY JSON must be an array of bytes");
+      throw new AgentKeyConfigError(`${name} JSON must be an array of bytes`);
     }
     bytes = Uint8Array.from(parsed as number[]);
   } else {
     try {
       bytes = base58Decode(value);
     } catch {
-      throw new AgentKeyConfigError("AGENT_SECRET_KEY is neither a JSON byte array nor base58");
+      throw new AgentKeyConfigError(`${name} is neither a JSON byte array nor base58`);
     }
   }
 
   if (bytes.length !== 64) {
-    throw new AgentKeyConfigError(`AGENT_SECRET_KEY must decode to 64 bytes, got ${bytes.length}`);
+    throw new AgentKeyConfigError(`${name} must decode to 64 bytes, got ${bytes.length}`);
   }
   try {
     // Validates that the public half matches the secret half. NOTE: web3.js keeps a
     // reference to `bytes` inside the Keypair, so the array must not be wiped here.
     return Keypair.fromSecretKey(bytes);
   } catch {
-    throw new AgentKeyConfigError("AGENT_SECRET_KEY is not a valid ed25519 keypair");
+    throw new AgentKeyConfigError(`${name} is not a valid ed25519 keypair`);
   }
 }
 

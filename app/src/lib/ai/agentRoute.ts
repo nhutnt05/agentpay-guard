@@ -5,6 +5,7 @@ import { fail, ok } from "@/lib/api/response";
 import { AccessConfigError } from "@/lib/server/access";
 import { clientIp } from "@/lib/server/guards";
 import { createRateLimiter, type RateLimiter } from "@/lib/server/rateLimit";
+import { SessionConfigError } from "@/lib/server/session";
 import { getAgentDeps } from "./agentDeps";
 import { type AgentDeps, AgentServiceError } from "./analyze";
 
@@ -32,7 +33,7 @@ export async function handleAgentPost<S extends z.ZodType<{ policy: string }>>(
   if (!parsed.success) return fail(400, "VALIDATION_ERROR", "invalid request body", parsed.error.issues);
 
   try {
-    return ok(await run(getAgentDeps(), parsed.data, new PublicKey(parsed.data.policy)));
+    return ok(await run(getAgentDeps(request), parsed.data, new PublicKey(parsed.data.policy)));
   } catch (e) {
     if (e instanceof AgentServiceError) {
       return Response.json(
@@ -41,6 +42,7 @@ export async function handleAgentPost<S extends z.ZodType<{ policy: string }>>(
       );
     }
     if (e instanceof AccessConfigError) return fail(500, "CONFIG_ERROR", "server access configuration is invalid");
+    if (e instanceof SessionConfigError) return fail(500, "CONFIG_ERROR", e.message);
     return fail(502, "RPC_ERROR", "request failed while talking to the cluster");
   }
 }

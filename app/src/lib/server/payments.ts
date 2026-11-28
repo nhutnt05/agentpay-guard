@@ -49,8 +49,15 @@ export interface PaymentDeps {
   program: AgentPaymentFirewallProgram;
   /** Server agent keypair, or null when not configured. */
   agent: Keypair | null;
+  /**
+   * Optional separate fee payer (T-M4-19). Pays the transaction fee only; the agent still signs
+   * `execute_payment` and pays the receipt rent. Defaults to the agent.
+   */
+  feePayer?: Keypair | null;
   allowedOwners: ReadonlySet<string>;
   demoMode: boolean;
+  /** Owner-session requirement (T-M4-16); absent = not required. */
+  ownerSession?: { required: boolean; wallet: string | null };
   /** How long submit waits for `confirmed` before answering SUBMITTED (default 25 s). */
   confirmTimeoutMs?: number;
 }
@@ -112,6 +119,16 @@ async function resolveServedPolicy(deps: PaymentDeps, address: PublicKey): Promi
   if (lookup.kind === "missing") throw new PaymentServiceError(404, "NOT_FOUND", "no account at this address");
   if (lookup.kind === "not_a_policy") {
     throw new PaymentServiceError(404, "NOT_A_POLICY", "account is not an AgentPay Guard policy");
+  }
+  // T-M4-16: optional owner session (REQUIRE_OWNER_SESSION=true). The session wallet must be
+  // the policy's ON-CHAIN owner — never an owner address sent by the client.
+  if (deps.ownerSession?.required) {
+    if (!deps.ownerSession.wallet) {
+      throw new PaymentServiceError(401, "OWNER_SESSION_REQUIRED", "sign in with the policy owner's wallet first");
+    }
+    if (deps.ownerSession.wallet !== lookup.policy.owner.toBase58()) {
+      throw new PaymentServiceError(403, "NOT_POLICY_OWNER", "the signed-in wallet is not the owner of this policy");
+    }
   }
   const decision = checkPolicyServed(lookup.policy, deps.agent?.publicKey ?? null, deps.allowedOwners);
   if (!decision.allowed) {
@@ -180,7 +197,8 @@ async function buildTransaction(deps: PaymentDeps, agent: Keypair, f: PaymentFie
     })
     .instruction();
   const { blockhash, lastValidBlockHeight } = await deps.rpc.getLatestBlockhash("confirmed");
-  const tx = new Transaction({ feePayer: agent.publicKey, blockhash, lastValidBlockHeight }).add(ix);
+  const feePayer = deps.feePayer ?? agent;
+  const tx = new Transaction({ feePayer: feePayer.publicKey, blockhash, lastValidBlockHeight }).add(ix);
   return { tx, blockhash, lastValidBlockHeight };
 }
 
@@ -357,7 +375,9 @@ export async function submitPayment(deps: PaymentDeps, input: SubmitRequest): Pr
     }
   }
 
-  tx.sign(agent);
+  // Fee payer first (it is account 0), then the agent. Same key when no separate fee payer.
+  const feePayer = deps.feePayer ?? agent;
+  tx.sign(...(feePayer.publicKey.equals(agent.publicKey) ? [agent] : [feePayer, agent]));
   let signature: string;
   try {
     // Already simulated above (or deliberately forced in demo mode).

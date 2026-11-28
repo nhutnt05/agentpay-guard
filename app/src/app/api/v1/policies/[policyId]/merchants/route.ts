@@ -4,6 +4,7 @@ import { merchantTokenAccount } from "@/lib/anchor/pda";
 import { getReadonlyProgram } from "@/lib/anchor/program";
 import { fail, ok } from "@/lib/api/response";
 import { loadPolicy } from "@/lib/policy/read";
+import { AGENT_IS_MERCHANT_WARNING, agentIsAllowlistedMerchant } from "@/lib/policy/warnings";
 import { rateLimitRead } from "@/lib/server/guards";
 import { getServerConnection } from "@/lib/solana/connection";
 import { PolicyRouteParamsSchema } from "@/lib/validation/common";
@@ -44,7 +45,18 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/policies/
       }))
       .sort((a, b) => a.createdAt - b.createdAt);
 
-    return ok({ policy: policy.toBase58(), mint: mint.toBase58(), count: merchants.length, merchants });
+    const agentIsMerchant = agentIsAllowlistedMerchant(
+      lookup.policy.agent.toBase58(),
+      merchants.map((m) => m.merchant),
+    );
+    return ok({
+      policy: policy.toBase58(),
+      mint: mint.toBase58(),
+      count: merchants.length,
+      merchants,
+      agentIsAllowlistedMerchant: agentIsMerchant,
+      warnings: agentIsMerchant ? [AGENT_IS_MERCHANT_WARNING] : [],
+    });
   } catch {
     return fail(502, "RPC_ERROR", "failed to read merchants from the cluster");
   }

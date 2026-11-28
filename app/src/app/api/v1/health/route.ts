@@ -3,6 +3,7 @@ import { connection as requestTime } from "next/server";
 import { checkProgramIdConfig } from "@/lib/anchor/constants";
 import { ok } from "@/lib/api/response";
 import { getAgentPublicKey } from "@/lib/server/agentKeypair";
+import { getFeePayerPublicKey } from "@/lib/server/feePayer";
 import { rateLimitRead } from "@/lib/server/guards";
 import { getCluster, getServerConnection } from "@/lib/solana/connection";
 
@@ -24,18 +25,22 @@ export async function GET(request: Request) {
 
   const connection = getServerConnection();
   const agent = getAgentPublicKey();
+  const feePayer = getFeePayerPublicKey();
   const programId = checkProgramIdConfig();
 
   let rpcSlot: number | null = null;
   let agentSolBalanceLamports: string | null = null;
+  let feePayerSolBalanceLamports: string | null = null;
   let rpcError: string | null = null;
   try {
-    const [slot, balance] = await Promise.all([
+    const [slot, balance, feeBalance] = await Promise.all([
       connection.getSlot("confirmed"),
       agent ? connection.getBalance(agent, "confirmed") : Promise.resolve(null),
+      feePayer ? connection.getBalance(feePayer, "confirmed") : Promise.resolve(null),
     ]);
     rpcSlot = slot;
     agentSolBalanceLamports = balance === null ? null : String(balance);
+    feePayerSolBalanceLamports = feeBalance === null ? null : String(feeBalance);
   } catch {
     rpcError = "RPC request failed";
   }
@@ -46,6 +51,9 @@ export async function GET(request: Request) {
     programIdConfigOk: programId.ok,
     agentPubkey: agent?.toBase58() ?? null,
     agentSolBalanceLamports,
+    // Optional separate fee payer (T-M4-19); null = the agent pays its own fees.
+    feePayerPubkey: feePayer?.toBase58() ?? null,
+    feePayerSolBalanceLamports,
     rpcSlot,
     rpcError,
     llmConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
