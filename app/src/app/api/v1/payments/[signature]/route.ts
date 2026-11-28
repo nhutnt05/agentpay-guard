@@ -1,6 +1,7 @@
 import { connection as requestTime } from "next/server";
 import { z } from "zod";
 import { fail, ok } from "@/lib/api/response";
+import { AgentKeyConfigError } from "@/lib/server/agentKeypair";
 import { rateLimitRead } from "@/lib/server/guards";
 import { getPaymentDeps } from "@/lib/server/paymentDeps";
 import { getPaymentStatus, PaymentServiceError } from "@/lib/server/payments";
@@ -22,6 +23,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/payments/
     if (e instanceof PaymentServiceError) {
       return Response.json({ ok: false, error: { code: e.code, message: e.message } }, { status: e.httpStatus });
     }
+    if (e instanceof AgentKeyConfigError) return fail(500, "CONFIG_ERROR", e.message);
     return fail(502, "RPC_ERROR", "failed to read the transaction from the cluster");
   }
 }

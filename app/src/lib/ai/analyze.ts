@@ -41,6 +41,8 @@ export interface AgentDeps {
   allowedOwners: ReadonlySet<string>;
   demoMode: boolean;
   getDecimals: (mint: PublicKey) => Promise<number>;
+  /** Owner-session requirement (T-M4-16); absent = not required. */
+  ownerSession?: { required: boolean; wallet: string | null };
   scrape: Scraper;
   /** Injected in tests; defaults to the Anthropic client. */
   llm?: LlmClient;
@@ -61,6 +63,16 @@ export async function analyzeIntent(deps: AgentDeps, req: AnalyzeRequest, policy
     throw new AgentServiceError(403, "DEMO_DISABLED", "VULNERABLE_DEMO mode requires DEMO_MODE=true");
   }
   const policy = await requirePolicy(deps, policyAddress);
+  // T-M4-16: optional owner session (REQUIRE_OWNER_SESSION=true). The session wallet must be
+  // the policy's ON-CHAIN owner — never an owner address sent by the client.
+  if (deps.ownerSession?.required) {
+    if (!deps.ownerSession.wallet) {
+      throw new AgentServiceError(401, "OWNER_SESSION_REQUIRED", "sign in with the policy owner's wallet first");
+    }
+    if (deps.ownerSession.wallet !== policy.owner.toBase58()) {
+      throw new AgentServiceError(403, "NOT_POLICY_OWNER", "the signed-in wallet is not the owner of this policy");
+    }
+  }
   const decision = checkPolicyServed(policy, deps.agent, deps.allowedOwners);
   if (!decision.allowed) {
     throw new AgentServiceError(403, "POLICY_NOT_SERVED", "this server's agent does not act for this policy", {

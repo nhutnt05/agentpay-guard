@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { short } from "@/components/ui/ExplorerLink";
 import { type AnyData, createApiClient } from "@/lib/client/api";
 import { reasonLabel } from "@/lib/demo/labels";
+import { AGENT_IS_MERCHANT_WARNING, agentIsAllowlistedMerchant } from "@/lib/policy/warnings";
 import { SCENARIO_ORDER, SCENARIOS, type ScenarioId, type ScenarioOutcome } from "@/lib/demo/scenarios";
 import { formatBaseUnits, parseDecimalAmount } from "@/lib/solana/amounts";
 
@@ -103,6 +104,11 @@ export function SecurityDemo() {
           <div className="flex items-center gap-2">
             Status: {policy.isPaused ? <Badge tone="warning">Paused</Badge> : <Badge tone="success">Active</Badge>}
           </div>
+          {agentIsAllowlistedMerchant(policy.agent, merchants.map((m) => m.merchant)) && (
+            <p className="rounded border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200 sm:col-span-2">
+              ⚠ {AGENT_IS_MERCHANT_WARNING}
+            </p>
+          )}
           {!policy.servedByThisAgent && (
             <p className="text-amber-700 dark:text-amber-400 sm:col-span-2">
               This server&apos;s agent does not act for this policy ({reasonLabel(policy.accessReason) ?? policy.accessReason}); payment

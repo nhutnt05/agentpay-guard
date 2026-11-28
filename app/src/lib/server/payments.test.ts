@@ -300,6 +300,64 @@ describe("submitPayment", () => {
   });
 });
 
+describe("owner session (T-M4-16)", () => {
+  it("required: no session → 401, non-owner session → 403, owner session → proceeds", async () => {
+    const { rpc } = fakeRpc({ policyData });
+    await expect(
+      preparePayment(deps(rpc, { ownerSession: { required: true, wallet: null } }), prepareInput()),
+    ).rejects.toMatchObject({ httpStatus: 401, code: "OWNER_SESSION_REQUIRED" });
+    await expect(
+      preparePayment(deps(rpc, { ownerSession: { required: true, wallet: Keypair.generate().publicKey.toBase58() } }), prepareInput()),
+    ).rejects.toMatchObject({ httpStatus: 403, code: "NOT_POLICY_OWNER" });
+    const ok = await preparePayment(deps(rpc, { ownerSession: { required: true, wallet: owner.toBase58() } }), prepareInput());
+    expect(ok.status).toBe("READY_TO_SIGN");
+  });
+
+  it("not required: payments work without a session (default)", async () => {
+    const { rpc } = fakeRpc({ policyData });
+    const r = await preparePayment(deps(rpc, { ownerSession: { required: false, wallet: null } }), prepareInput());
+    expect(r.status).toBe("READY_TO_SIGN");
+  });
+});
+
+describe("separate fee payer (T-M4-19)", () => {
+  it("fee payer pays the transaction fee; the agent still signs execute_payment (and pays receipt rent)", async () => {
+    const feePayer = Keypair.generate();
+    let landed = false;
+    const { rpc, sent } = fakeRpc({
+      policyData,
+      receiptExists: () => landed,
+      confirm: async () => {
+        landed = true;
+        return { value: { err: null } };
+      },
+    });
+    const d = deps(rpc, { feePayer });
+    const r = await submitPayment(d, submitInput(await prepared(d)));
+    expect(r.status).toBe("CONFIRMED");
+
+    const tx = Transaction.from(sent[0]);
+    expect(tx.feePayer?.equals(feePayer.publicKey)).toBe(true); // account 0 pays the fee
+    expect(tx.signatures.map((s) => s.publicKey.toBase58()).sort()).toEqual(
+      [feePayer.publicKey.toBase58(), agent.publicKey.toBase58()].sort(),
+    );
+    expect(tx.verifySignatures()).toBe(true);
+    const ix = tx.instructions[0];
+    const agentMeta = ix.keys.find((k) => k.pubkey.equals(agent.publicKey));
+    expect(agentMeta).toMatchObject({ isSigner: true, isWritable: true }); // spending authority + receipt payer
+    expect(ix.keys.some((k) => k.pubkey.equals(feePayer.publicKey))).toBe(false); // no role in the program
+  });
+
+  it("without a fee payer the agent pays its own fee (unchanged behavior)", async () => {
+    const { rpc, sent } = fakeRpc({ policyData, receiptExists: () => sent.length > 0 });
+    const d = deps(rpc, { feePayer: null });
+    await submitPayment(d, submitInput(await prepared(d)));
+    const tx = Transaction.from(sent[0]);
+    expect(tx.feePayer?.equals(agent.publicKey)).toBe(true);
+    expect(tx.signatures).toHaveLength(1);
+  });
+});
+
 describe("timing", () => {
   it("timeout path does not wait for the configured default", async () => {
     vi.useRealTimers();

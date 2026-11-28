@@ -1,6 +1,8 @@
 import { fail, ok } from "@/lib/api/response";
 import { DemoError, DemoRequestSchema, runPromptInjectionDemo } from "@/lib/ai/demo";
 import { getDemoDeps } from "@/lib/ai/demoDeps";
+import { AgentKeyConfigError } from "@/lib/server/agentKeypair";
+import { SessionConfigError } from "@/lib/server/session";
 import { clientIp } from "@/lib/server/guards";
 import { PaymentServiceError } from "@/lib/server/payments";
 import { createRateLimiter } from "@/lib/server/rateLimit";
@@ -32,11 +34,12 @@ export async function POST(request: Request) {
   if (!parsed.success) return fail(400, "VALIDATION_ERROR", "invalid request body", parsed.error.issues);
 
   try {
-    return ok(await runPromptInjectionDemo(getDemoDeps(), parsed.data));
+    return ok(await runPromptInjectionDemo(getDemoDeps(request), parsed.data));
   } catch (e) {
     if (e instanceof DemoError || e instanceof PaymentServiceError) {
       return Response.json({ ok: false, error: { code: e.code, message: e.message } }, { status: e.httpStatus });
     }
+    if (e instanceof AgentKeyConfigError || e instanceof SessionConfigError) return fail(500, "CONFIG_ERROR", e.message);
     return fail(502, "RPC_ERROR", "demo failed while talking to the cluster");
   }
 }
