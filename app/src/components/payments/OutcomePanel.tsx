@@ -35,6 +35,28 @@ export function OutcomePanel({ outcome, decimals }: { outcome: ScenarioOutcome; 
         {actual.reason && <span className="font-medium">{reasonLabel(actual.reason)}</span>}
       </div>
       {actual.message && <p className="text-zinc-600 dark:text-zinc-400">{actual.message}</p>}
+      {outcome.extra?.agent && (
+        <div className="space-y-1 rounded bg-zinc-50 p-2 dark:bg-zinc-900">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone="warning">{outcome.extra.agent.label}</Badge>
+            <Badge tone="neutral">
+              Agent output: {outcome.extra.agent.agentOutputSource === "LLM" ? `LLM (${outcome.extra.agent.llmModel})` : "SCRIPTED"}
+            </Badge>
+            {outcome.extra.contentLabel && <Badge tone="neutral">{outcome.extra.contentLabel}</Badge>}
+          </div>
+          {outcome.extra.agent.llmNote && <p className="text-xs text-zinc-600 dark:text-zinc-400">{outcome.extra.agent.llmNote}</p>}
+          {outcome.extra.intent && (
+            <p>
+              Agent tried to pay <span className="font-mono">{short(outcome.extra.intent.merchant)}</span>{" "}
+              {fmt(outcome.extra.intent.amount, decimals)} tokens.
+            </p>
+          )}
+          <p>
+            {outcome.extra.unchanged ? "Balances unchanged (on-chain before = after)" : "Balances changed"} ·{" "}
+            {outcome.extra.receiptExists ? "receipt created" : "no receipt created"}
+          </p>
+        </div>
+      )}
       {actual.signature && (
         <p>
           Signature: <ExplorerLink href={actual.explorerUrl} label={short(actual.signature)} />
